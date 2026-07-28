@@ -12,6 +12,9 @@
     },
     {
       "path": "./packages/policy"
+    },
+    {
+      "path": "./packages/plugin-sdk"
     }
   ]
 }
