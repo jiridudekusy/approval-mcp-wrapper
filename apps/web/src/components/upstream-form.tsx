@@ -8,7 +8,7 @@ export function UpstreamForm({
   onCreated,
 }: {
   csrfToken: string;
-  onCreated(): void;
+  onCreated(upstream: { id: string }): void;
 }) {
   const { t } = useI18n();
   const [alias, setAlias] = useState('');
@@ -18,7 +18,7 @@ export function UpstreamForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    await api(
+    const upstream = await api<{ id: string }>(
       '/api/admin/upstreams',
       {
         method: 'POST',
@@ -33,7 +33,7 @@ export function UpstreamForm({
       },
       csrfToken,
     );
-    onCreated();
+    onCreated(upstream);
   }
 
   return (
