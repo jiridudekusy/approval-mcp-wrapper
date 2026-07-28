@@ -1,0 +1,42 @@
+{
+  "name": "approval-mcp-wrapper",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "node --test scripts/*.test.mjs && vitest run",
+    "typecheck": "tsc -b",
+    "build": "tsc -b",
+    "audit:deps": "node scripts/dependency-report.mjs && npm audit --omit=dev --audit-level=high",
+    "verify:language": "node scripts/verify-language.mjs",
+    "verify": "npm run typecheck && npm test && npm run build && npm run audit:deps && npm run verify:language"
+  },
+  "dependencies": {
+    "@fastify/static": "10.1.2",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@simplewebauthn/browser": "13.3.0",
+    "@simplewebauthn/server": "13.3.2",
+    "fastify": "5.10.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/node": "26.1.2",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "fast-check": "4.9.0",
+    "typescript": "7.0.2",
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
+  }
+}

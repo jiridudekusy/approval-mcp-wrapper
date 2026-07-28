@@ -35,6 +35,7 @@
 ├── package.json                             # Workspace scripts and exact tool versions
 ├── package-lock.json                        # Reproducible dependency graph
 ├── tsconfig.base.json                       # Strict shared TypeScript settings
+├── vitest.config.ts                         # Root test discovery and defaults
 ├── docs/
 │   ├── dependencies/                        # One admission record per runtime package
 │   ├── operations/                          # Deployment, backup, restore, recovery
@@ -68,7 +69,7 @@ package's `index.ts`; callers do not import another package's internal files.
 **Files:**
 - Create: `package.json`
 - Create: `tsconfig.base.json`
-- Create: `vitest.workspace.ts`
+- Create: `vitest.config.ts`
 - Create: `.gitignore`
 - Create: `.github/workflows/ci.yml`
 - Create: `scripts/dependency-report.mjs`
@@ -173,7 +174,7 @@ Expected: PASS; `npm audit` reports zero high or critical production vulnerabili
 - [ ] **Step 7: Commit**
 
 ```bash
-git add package.json package-lock.json tsconfig.base.json vitest.workspace.ts .gitignore .github scripts docs/dependencies
+git add package.json package-lock.json tsconfig.base.json tsconfig.json vitest.config.ts .gitignore .github scripts docs/dependencies
 git commit -m "build: establish workspace and dependency gates"
 ```
 
