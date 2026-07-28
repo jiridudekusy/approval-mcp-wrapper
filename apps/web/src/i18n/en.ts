@@ -57,6 +57,18 @@ export const en = {
   'system.runtime': 'Node runtime',
   'system.uptime': 'Uptime',
   'system.healthy': 'All core services operational',
+  'history.title': 'Call history',
+  'history.subtitle': 'Every MCP decision and invocation, in one durable timeline.',
+  'history.search': 'Filter by tool',
+  'history.status': 'Final status',
+  'history.all': 'All statuses',
+  'history.exportJsonl': 'Export JSONL',
+  'history.exportCsv': 'Export CSV',
+  'history.empty': 'No calls match these filters',
+  'history.timeline': 'Call timeline',
+  'history.loadMore': 'Load more',
+  'history.received': 'Received',
+  'history.completed': 'Completed',
 } as const;
 
 export type MessageKey = keyof typeof en;

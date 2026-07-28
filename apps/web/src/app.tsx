@@ -7,6 +7,7 @@ import { Login } from './pages/login.js';
 import { Upstreams } from './pages/upstreams.js';
 import { Access } from './pages/access.js';
 import { System } from './pages/system.js';
+import { History } from './pages/history.js';
 
 export function App() {
   const { t } = useI18n();
@@ -26,6 +27,8 @@ export function App() {
         <Access csrfToken={csrfToken} />
       ) : page === 'system' ? (
         <System />
+      ) : page === 'history' ? (
+        <History />
       ) : (
         <section className="page">
           <header className="page-header">
