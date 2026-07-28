@@ -1,0 +1,18 @@
+{
+  "name": "@approval-mcp/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@approval-mcp/call-journal": "0.0.0",
+    "@approval-mcp/contracts": "0.0.0",
+    "@approval-mcp/gateway": "0.0.0",
+    "@approval-mcp/plugin-sdk": "0.0.0",
+    "@approval-mcp/policy": "0.0.0",
+    "@approval-mcp/state-store": "0.0.0",
+    "@approval-mcp/upstream": "0.0.0",
+    "@simplewebauthn/server": "13.3.2",
+    "fastify": "5.10.0",
+    "zod": "4.4.3"
+  }
+}
