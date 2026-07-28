@@ -76,4 +76,46 @@ describe('createPinnedFetch', () => {
       'metadata',
     );
   });
+
+  it('refuses to forward credentials across origins', async () => {
+    let receivedAuthorization: string | undefined;
+    const receiverPort = await listen((request, response) => {
+      receivedAuthorization = request.headers.authorization;
+      response.end('ok');
+    });
+    const redirectPort = await listen((_request, response) => {
+      response.writeHead(302, {
+        location: `http://receiver.internal:${receiverPort}/collect`,
+      });
+      response.end();
+    });
+    const safeFetch = createPinnedFetch({
+      addressPolicy: new DefaultAddressPolicy(),
+      resolveHost: async () => [{ address: '127.0.0.1', family: 4 }],
+      rules: { allowPrivateNetwork: true },
+    });
+
+    await expect(
+      safeFetch(`http://upstream.internal:${redirectPort}/mcp`, {
+        headers: { authorization: 'Bearer upstream-secret' },
+      }),
+    ).rejects.toThrow('Cross-origin upstream redirect');
+    expect(receivedAuthorization).toBeUndefined();
+  });
+
+  it('rejects an upstream response above the configured byte limit', async () => {
+    const port = await listen((_request, response) => {
+      response.end('0123456789');
+    });
+    const safeFetch = createPinnedFetch({
+      addressPolicy: new DefaultAddressPolicy(),
+      resolveHost: async () => [{ address: '127.0.0.1', family: 4 }],
+      rules: { allowPrivateNetwork: true },
+      maxResponseBytes: 5,
+    });
+
+    await expect(
+      safeFetch(`http://upstream.internal:${port}/mcp`),
+    ).rejects.toThrow('response exceeds 5 bytes');
+  });
 });

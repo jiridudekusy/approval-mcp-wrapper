@@ -74,6 +74,7 @@ interface PinnedFetchOptions {
   resolveHost: ResolveHost;
   rules: NetworkRules;
   maxRedirects?: number;
+  maxResponseBytes?: number;
 }
 
 export function createPinnedFetch(options: PinnedFetchOptions): typeof fetch {
@@ -128,10 +129,26 @@ export function createPinnedFetch(options: PinnedFetchOptions): typeof fetch {
         },
         (incoming) => {
           const chunks: Buffer[] = [];
+          const maxResponseBytes = options.maxResponseBytes ?? 8 * 1024 * 1024;
+          let receivedBytes = 0;
+          let rejected = false;
           incoming.on('data', (chunk: Buffer | string) => {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            receivedBytes += buffer.byteLength;
+            if (receivedBytes > maxResponseBytes) {
+              rejected = true;
+              incoming.destroy();
+              reject(
+                new Error(
+                  `Upstream response exceeds ${maxResponseBytes} bytes`,
+                ),
+              );
+              return;
+            }
+            chunks.push(buffer);
           });
           incoming.on('end', () => {
+            if (rejected) return;
             resolve(
               new Response(Buffer.concat(chunks), {
                 status: incoming.statusCode ?? 500,
@@ -159,6 +176,11 @@ export function createPinnedFetch(options: PinnedFetchOptions): typeof fetch {
       const limit = options.maxRedirects ?? 5;
       if (redirectCount >= limit) throw new Error('Too many upstream redirects');
       const target = new URL(response.headers.get('location') ?? '', url);
+      const targetAddresses = await options.resolveHost(target.hostname);
+      options.addressPolicy.assertAllowed(target, targetAddresses, options.rules);
+      if (target.origin !== url.origin) {
+        throw new Error('Cross-origin upstream redirect is not allowed');
+      }
       return request(target, init, redirectCount + 1);
     }
     return response;

@@ -14,6 +14,9 @@ const SCRYPT_N = 16_384;
 const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 const KEY_LENGTH = 32;
+const TOKEN_PATTERN =
+  /^amcp_([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})_([A-Za-z0-9_-]{43})$/;
+const DUMMY_SALT = Buffer.alloc(16);
 
 export interface TokenRepository {
   save(record: ClientTokenRecord): Promise<void>;
@@ -119,12 +122,13 @@ export class TokenService {
     if (normalizedLabel.length === 0 || normalizedLabel.length > 120) {
       throw new Error('Token label must contain between 1 and 120 characters');
     }
-    const plaintext = `amcp_${randomBytes(32).toString('base64url')}`;
+    const id = randomUUID() as ClientTokenId;
+    const plaintext = `amcp_${id}_${randomBytes(32).toString('base64url')}`;
     const salt = randomBytes(16);
     const hash = await hashToken(plaintext, salt);
     const now = this.#now().toISOString();
     const record: ClientTokenRecord = {
-      id: randomUUID() as ClientTokenId,
+      id,
       label: normalizedLabel,
       hash: encodeVerifier(salt, hash),
       salt: salt.toString('base64url'),
@@ -140,30 +144,32 @@ export class TokenService {
   async authenticate(
     plaintext: string,
   ): Promise<ClientTokenRecord | undefined> {
-    if (!/^amcp_[A-Za-z0-9_-]{43}$/.test(plaintext)) return undefined;
-    const records = await this.#repository.list();
-    for (const record of records) {
-      if (record.revokedAt !== undefined) continue;
-      const verifier = parseVerifier(record.hash);
-      if (verifier === undefined) continue;
-      const actual = await hashToken(
-        plaintext,
-        Buffer.from(record.salt, 'base64url'),
-        verifier,
-      );
-      if (timingSafeEqual(actual, verifier.hash)) {
-        const now = this.#now().toISOString();
-        const updated: ClientTokenRecord = {
-          ...record,
-          lastUsedAt: now,
-          updatedAt: now,
-          version: record.version + 1,
-        };
-        await this.#repository.save(updated);
-        return structuredClone(updated);
-      }
+    const match = TOKEN_PATTERN.exec(plaintext);
+    if (match === null) return undefined;
+    const record = await this.#repository.findById(match[1] as ClientTokenId);
+    const verifier =
+      record === undefined ? undefined : parseVerifier(record.hash);
+    if (record === undefined || verifier === undefined) {
+      await hashToken(plaintext, DUMMY_SALT);
+      return undefined;
     }
-    return undefined;
+    const actual = await hashToken(
+      plaintext,
+      Buffer.from(record.salt, 'base64url'),
+      verifier,
+    );
+    if (record.revokedAt !== undefined || !timingSafeEqual(actual, verifier.hash)) {
+      return undefined;
+    }
+    const now = this.#now().toISOString();
+    const updated: ClientTokenRecord = {
+      ...record,
+      lastUsedAt: now,
+      updatedAt: now,
+      version: record.version + 1,
+    };
+    await this.#repository.save(updated);
+    return structuredClone(updated);
   }
 
   async revoke(id: ClientTokenId): Promise<void> {

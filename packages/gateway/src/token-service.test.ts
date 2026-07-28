@@ -15,7 +15,9 @@ describe('TokenService', () => {
     const created = await service.create('Personal chain');
     const stored = await repository.findById(created.record.id);
 
-    expect(created.plaintext).toMatch(/^amcp_[A-Za-z0-9_-]{43}$/);
+    expect(created.plaintext).toMatch(
+      /^amcp_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}_[A-Za-z0-9_-]{43}$/,
+    );
     expect(stored).toEqual(created.record);
     expect(JSON.stringify(stored)).not.toContain(created.plaintext);
     expect(stored?.hash).toMatch(/^scrypt\$/);
@@ -30,10 +32,33 @@ describe('TokenService', () => {
 
     await expect(service.authenticate('invalid')).resolves.toBeUndefined();
     await expect(
-      service.authenticate(`amcp_${'A'.repeat(43)}`),
+      service.authenticate(
+        `amcp_00000000-0000-4000-8000-000000000000_${'A'.repeat(43)}`,
+      ),
     ).resolves.toBeUndefined();
     await service.revoke(created.record.id);
     await expect(service.authenticate(created.plaintext)).resolves.toBeUndefined();
+  });
+
+  it('looks up exactly one token record before running scrypt', async () => {
+    const repository = new InMemoryTokenRepository();
+    const service = new TokenService(repository);
+    await service.create('First');
+    const second = await service.create('Second');
+    let listCalls = 0;
+    const indexedRepository: TokenRepository = {
+      save: (record) => repository.save(record),
+      findById: (id) => repository.findById(id),
+      list: async () => {
+        listCalls += 1;
+        return repository.list();
+      },
+    };
+
+    await expect(
+      new TokenService(indexedRepository).authenticate(second.plaintext),
+    ).resolves.toMatchObject({ id: second.record.id });
+    expect(listCalls).toBe(0);
   });
 
   it('makes revocation durable before returning', async () => {

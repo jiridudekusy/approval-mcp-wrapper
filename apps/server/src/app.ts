@@ -7,6 +7,7 @@ import {
 
 export async function buildServerApp(options: {
   auth: AuthRouteOptions;
+  readiness?: () => Promise<unknown>;
 }): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
@@ -24,5 +25,18 @@ export async function buildServerApp(options: {
     });
   });
   app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health/live', async () => ({ status: 'ok' }));
+  app.get('/health/ready', async (_request, reply) => {
+    const result = await options.readiness?.() ?? { ready: true };
+    if (
+      typeof result === 'object' &&
+      result !== null &&
+      'ready' in result &&
+      result.ready === false
+    ) {
+      reply.code(503);
+    }
+    return result;
+  });
   return app;
 }

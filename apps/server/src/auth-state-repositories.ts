@@ -36,6 +36,8 @@ function upsert(
 }
 
 export class StatePasskeyRepository implements PasskeyRepository {
+  #queue: Promise<void> = Promise.resolve();
+
   constructor(readonly store: ConfigStateStore) {}
 
   async list(): Promise<readonly PasskeyRecord[]> {
@@ -54,6 +56,21 @@ export class StatePasskeyRepository implements PasskeyRepository {
 
   async save(record: PasskeyRecord): Promise<void> {
     await this.store.mutate(upsert('passkeys', record.id, record));
+  }
+
+  async createFirst(record: PasskeyRecord): Promise<boolean> {
+    let created = false;
+    const run = this.#queue.then(async () => {
+      const empty = this.store.read(
+        (state) => Object.keys(state.passkeys).length === 0,
+      );
+      if (!empty) return;
+      await this.store.mutate(upsert('passkeys', record.id, record));
+      created = true;
+    });
+    this.#queue = run.catch(() => undefined);
+    await run;
+    return created;
   }
 }
 

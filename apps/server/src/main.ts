@@ -35,6 +35,8 @@ import type {
   Upstream,
 } from '@approval-mcp/contracts';
 import { evaluatePolicy } from '@approval-mcp/policy';
+import { readiness } from './operations/health.js';
+import { startRetentionJob } from './operations/retention-job.js';
 
 const config = loadConfig();
 const stateStore = await createConfigStateStore(config.dataDir);
@@ -142,6 +144,11 @@ const mcpHandler = createMcpHttpHandler({
   gateway: mcpGateway,
 });
 const app = await buildServerApp({
+  readiness: () =>
+    readiness(config.dataDir, {
+      stateLoaded: true,
+      masterKeyLoaded: true,
+    }),
   auth: {
     passkeys: new PasskeyService({
       rpName: 'Approval MCP Wrapper',
@@ -153,6 +160,10 @@ const app = await buildServerApp({
     recovery: new RecoveryService(new StateRecoveryRepository(stateStore)),
     secureCookies: config.secureCookies,
   },
+});
+const retention = startRetentionJob({
+  journal,
+  retentionDays: Number(process.env['APPROVAL_MCP_RETENTION_DAYS'] ?? 90),
 });
 await registerAdminRoutes(app, {
   sessions,
@@ -190,6 +201,7 @@ app.setNotFoundHandler((request, reply) => {
 });
 
 app.addHook('onClose', async () => {
+  retention.close();
   await upstreams.close();
   await stateStore.close();
 });

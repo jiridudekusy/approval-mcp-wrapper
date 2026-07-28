@@ -31,6 +31,7 @@ export interface PasskeyRepository {
   list(): Promise<readonly PasskeyRecord[]>;
   find(id: string): Promise<PasskeyRecord | undefined>;
   save(record: PasskeyRecord): Promise<void>;
+  createFirst(record: PasskeyRecord): Promise<boolean>;
 }
 
 export class InMemoryPasskeyRepository implements PasskeyRepository {
@@ -47,6 +48,12 @@ export class InMemoryPasskeyRepository implements PasskeyRepository {
 
   async save(record: PasskeyRecord): Promise<void> {
     this.#records.set(record.id, structuredClone(record));
+  }
+
+  async createFirst(record: PasskeyRecord): Promise<boolean> {
+    if (this.#records.size !== 0) return false;
+    this.#records.set(record.id, structuredClone(record));
+    return true;
   }
 }
 
@@ -121,7 +128,9 @@ export class PasskeyService {
               verification.registrationInfo.credential.transports,
           }),
     };
-    await this.#options.repository.save(record);
+    if (!(await this.#options.repository.createFirst(record))) {
+      throw new Error('Administrator bootstrap is already complete');
+    }
     return record;
   }
 

@@ -75,6 +75,9 @@ export async function registerAuthRoutes(
   app: FastifyInstance,
   options: AuthRouteOptions,
 ): Promise<void> {
+  const recoveryAttempts = new Map<string, { startedAt: number; count: number }>();
+  const recoveryWindowMs = 60_000;
+  const recoveryAttemptsPerWindow = 5;
   app.post('/api/auth/bootstrap/options', async () =>
     options.passkeys.bootstrapOptions(),
   );
@@ -111,6 +114,17 @@ export async function registerAuthRoutes(
   });
 
   app.post('/api/auth/recovery', async (request, reply) => {
+    const now = (options.now?.() ?? new Date()).getTime();
+    const previous = recoveryAttempts.get(request.ip);
+    const attempt =
+      previous === undefined || now - previous.startedAt >= recoveryWindowMs
+        ? { startedAt: now, count: 1 }
+        : { ...previous, count: previous.count + 1 };
+    recoveryAttempts.set(request.ip, attempt);
+    if (attempt.count > recoveryAttemptsPerWindow) {
+      reply.code(429).header('retry-after', '60');
+      return { error: 'recovery_rate_limited' };
+    }
     const body = request.body as { code?: unknown };
     if (typeof body.code !== 'string' || !(await options.recovery.consume(body.code))) {
       reply.code(401);

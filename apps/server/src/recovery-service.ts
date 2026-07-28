@@ -54,6 +54,8 @@ function printableCode(): string {
 }
 
 export class RecoveryService {
+  #verificationActive = false;
+
   constructor(
     readonly repository: RecoveryRepository,
     readonly now: () => Date = () => new Date(),
@@ -78,17 +80,23 @@ export class RecoveryService {
 
   async consume(code: string): Promise<boolean> {
     if (!/^[0-9A-F]{5}(?:-[0-9A-F]{5}){3}$/.test(code)) return false;
-    for (const record of await this.repository.list()) {
-      if (record.consumedAt !== undefined) continue;
-      const actual = await derive(code, Buffer.from(record.salt, 'base64url'));
-      const expected = Buffer.from(record.hash, 'base64url');
-      if (
-        actual.byteLength === expected.byteLength &&
-        timingSafeEqual(actual, expected)
-      ) {
-        return this.repository.consume(record.id, this.now().toISOString());
+    if (this.#verificationActive) return false;
+    this.#verificationActive = true;
+    try {
+      for (const record of await this.repository.list()) {
+        if (record.consumedAt !== undefined) continue;
+        const actual = await derive(code, Buffer.from(record.salt, 'base64url'));
+        const expected = Buffer.from(record.hash, 'base64url');
+        if (
+          actual.byteLength === expected.byteLength &&
+          timingSafeEqual(actual, expected)
+        ) {
+          return this.repository.consume(record.id, this.now().toISOString());
+        }
       }
+      return false;
+    } finally {
+      this.#verificationActive = false;
     }
-    return false;
   }
 }
