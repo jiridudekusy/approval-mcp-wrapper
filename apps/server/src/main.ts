@@ -19,6 +19,7 @@ import {
 import { CredentialVault } from '@approval-mcp/upstream';
 import { join } from 'node:path';
 import { registerAdminRoutes } from './admin/index.js';
+import fastifyStatic from '@fastify/static';
 
 const config = loadConfig();
 const stateStore = await createConfigStateStore(config.dataDir);
@@ -49,6 +50,22 @@ await registerAdminRoutes(app, {
   credentialVault: new CredentialVault(config.masterKey),
   approvals,
   journal,
+});
+await app.register(fastifyStatic, {
+  root: join(process.cwd(), 'apps', 'web', 'dist'),
+  wildcard: false,
+});
+app.setNotFoundHandler((request, reply) => {
+  if (request.method === 'GET' && !request.url.startsWith('/api/')) {
+    return reply.sendFile('index.html');
+  }
+  return reply.code(404).send({
+    error: {
+      code: 'route.not_found',
+      message: 'Route not found',
+      requestId: request.id,
+    },
+  });
 });
 
 app.addHook('onClose', async () => stateStore.close());

@@ -1,0 +1,25 @@
+export const en = {
+  'app.name': 'Approval MCP',
+  'app.tagline': 'Your tools. Your rules. Your final say.',
+  'nav.inbox': 'Inbox',
+  'nav.history': 'History',
+  'nav.access': 'Access',
+  'nav.upstreams': 'Upstreams',
+  'nav.system': 'System',
+  'login.eyebrow': 'PRIVATE CONTROL PLANE',
+  'login.title': 'Approve what your agents can do.',
+  'login.description': 'Connect your passkey to review sensitive MCP calls, shape durable rules, and keep a complete audit trail.',
+  'login.passkey': 'Continue with passkey',
+  'login.recovery': 'Use a recovery code',
+  'login.failed': 'Authentication failed. Please try again.',
+  'language.label': 'Language',
+  'status.secure': 'Local · encrypted · auditable',
+  'inbox.title': 'Approval inbox',
+  'inbox.subtitle': 'Calls waiting for your decision appear here in real time.',
+  'inbox.empty': 'Nothing needs your attention',
+  'inbox.emptyDetail': 'New sensitive calls will arrive here automatically.',
+  'common.loading': 'Loading…',
+  'common.logout': 'Log out',
+} as const;
+
+export type MessageKey = keyof typeof en;
