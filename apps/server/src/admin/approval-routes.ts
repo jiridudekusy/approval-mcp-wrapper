@@ -23,10 +23,7 @@ export async function registerApprovalRoutes(
   app.get('/api/admin/approvals', async (request, reply) => {
     if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
     return options.state.read((state) =>
-      Object.values(state.approvals).map((value) => {
-        const record = value as { approval?: unknown };
-        return record.approval ?? value;
-      }),
+      Object.values(state.approvals),
     );
   });
 
@@ -77,7 +74,10 @@ export async function registerApprovalRoutes(
     const lastEventId =
       typeof request.headers['last-event-id'] === 'string'
         ? request.headers['last-event-id']
-        : undefined;
+        : typeof (request.query as { lastEventId?: unknown }).lastEventId ===
+            'string'
+          ? (request.query as { lastEventId: string }).lastEventId
+          : undefined;
     const subscription = options.broker.subscribe(lastEventId, write);
     const heartbeat = setInterval(() => response.write(': heartbeat\n\n'), 20_000);
     heartbeat.unref();

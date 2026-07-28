@@ -144,7 +144,10 @@ export class PolicyCallCoordinator implements CallCoordinator {
           upstreamId: input.upstreamId,
           toolName: input.toolName,
           requestHash,
-          context,
+          context: redact(context, {
+            sensitivePaths: this.#options.sensitivePaths ?? [],
+            payloadLimitBytes: 64 * 1024,
+          }).value,
           normalizationVersion: this.#options.normalizationVersion ?? 1,
           reasonCode: decision.reasonCode,
           expiresAt,

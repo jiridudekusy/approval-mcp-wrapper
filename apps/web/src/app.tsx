@@ -16,7 +16,7 @@ export function App() {
   return (
     <AppShell page={page} onNavigate={setPage}>
       {page === 'inbox' ? (
-        <Inbox />
+        <Inbox csrfToken={csrfToken} />
       ) : (
         <section className="page">
           <header className="page-header">

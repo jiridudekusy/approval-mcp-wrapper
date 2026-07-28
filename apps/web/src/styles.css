@@ -118,6 +118,39 @@ h1 { letter-spacing: -0.045em; }
 .empty-state p { color: var(--muted); margin: 0; }
 .radar { width: 108px; height: 108px; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center; box-shadow: 0 0 0 18px #ffffff02, 0 0 0 36px #ffffff02; }
 .radar span { display: grid; place-items: center; width: 42px; height: 42px; background: var(--mint-dark); color: var(--mint); border-radius: 50%; }
+.approval-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding-top: 28px; }
+.approval-card {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 16px;
+  padding: 22px; text-align: left; cursor: pointer; transition: .18s ease;
+}
+.approval-card:hover { border-color: #55645c; transform: translateY(-2px); }
+.approval-card > div:first-child { display: flex; align-items: center; gap: 7px; color: var(--amber); }
+.approval-card h2 { margin: 22px 0; }
+.pending-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+.approval-card dl, .approval-meta { display: grid; gap: 8px; }
+.approval-card dl div, .approval-meta div { display: flex; justify-content: space-between; gap: 20px; }
+.approval-card dt, .approval-meta dt { color: var(--muted); }
+.approval-card dd, .approval-meta dd { margin: 0; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.approval-card time { display: block; color: #718078; font-size: 11px; margin-top: 20px; }
+.detail-backdrop { position: fixed; z-index: 30; inset: 0; background: #050806ba; backdrop-filter: blur(8px); display: grid; justify-items: end; }
+.approval-detail { width: min(620px, 100%); height: 100%; overflow: auto; padding: 32px; background: #141a17; border-left: 1px solid var(--line); box-shadow: -30px 0 80px #0008; }
+.approval-detail header { display: flex; justify-content: space-between; align-items: start; }
+.approval-detail h2 { font-size: 32px; margin: 6px 0 24px; }
+.approval-detail h3 { margin-top: 28px; font-size: 14px; }
+.close { border: 1px solid var(--line); background: transparent; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; }
+.connection-warning { border: 1px solid #f5ca7755; background: #392e18; color: #ffe0a4; padding: 10px 12px; border-radius: 9px; }
+.approval-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #0c110f; border: 1px solid var(--line); border-radius: 12px; padding: 16px; color: #b8c5bf; }
+.scope-form { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 20px 0; margin-top: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.scope-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; }
+.scope-form input, .scope-form select { width: 100%; border: 1px solid var(--line); background: #0d1210; color: var(--ink); border-radius: 8px; padding: 10px; }
+.scope-form code { grid-column: 1 / -1; color: var(--mint); font-size: 10px; overflow-wrap: anywhere; }
+.confirm { display: flex; gap: 10px; align-items: start; margin-top: 20px; font-size: 13px; }
+.permanent-note { color: var(--muted); font-size: 12px; }
+.decision-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 24px; }
+.decision-actions button { border: 1px solid var(--line); background: var(--panel-soft); border-radius: 10px; padding: 12px; cursor: pointer; }
+.decision-actions button.danger { color: #ffaaa2; }
+.decision-actions button.primary { color: #102017; background: var(--mint); }
+.decision-actions button:disabled { opacity: .45; cursor: not-allowed; }
 .bottom-nav { display: none; }
 
 @media (max-width: 719px) {
@@ -142,4 +175,9 @@ h1 { letter-spacing: -0.045em; }
   .bottom-nav button { border: 0; background: none; color: #748079; display: grid; gap: 3px; justify-items: center; cursor: pointer; }
   .bottom-nav button.selected { color: var(--mint); }
   .bottom-nav small { font-size: 9px; }
+  .detail-backdrop { align-items: end; }
+  .approval-detail { height: 92vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 20px 20px 0 0; padding: 24px 18px 90px; }
+  .scope-form { grid-template-columns: 1fr; }
+  .scope-form code { grid-column: 1; }
+  .decision-actions { grid-template-columns: 1fr; }
 }
