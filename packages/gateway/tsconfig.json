@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../state-store" },
+    { "path": "../upstream" }
+  ],
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}

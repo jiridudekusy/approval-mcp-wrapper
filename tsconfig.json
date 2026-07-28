@@ -18,6 +18,9 @@
     },
     {
       "path": "./packages/upstream"
+    },
+    {
+      "path": "./packages/gateway"
     }
   ]
 }
