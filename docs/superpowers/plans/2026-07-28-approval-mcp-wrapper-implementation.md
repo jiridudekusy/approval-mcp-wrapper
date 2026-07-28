@@ -154,7 +154,7 @@ export function missingKeys(source, target) {
 Run:
 
 ```bash
-npm install --save-exact @modelcontextprotocol/sdk@1.30.0 fastify@5.10.0 @fastify/static@10.1.2 zod@4.4.3 @simplewebauthn/server@13.3.2 @simplewebauthn/browser@13.3.2 react@19.2.8 react-dom@19.2.8
+npm install --save-exact @modelcontextprotocol/sdk@1.30.0 fastify@5.10.0 @fastify/static@10.1.2 zod@4.4.3 @simplewebauthn/server@13.3.2 @simplewebauthn/browser@13.3.0 react@19.2.8 react-dom@19.2.8
 npm install --save-dev --save-exact typescript@7.0.2 vite@8.1.5 @vitejs/plugin-react@6.0.4 vitest @playwright/test@1.61.1 fast-check@4.9.0 @types/node @types/react @types/react-dom
 ```
 
