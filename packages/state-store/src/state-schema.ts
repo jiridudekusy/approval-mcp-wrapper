@@ -34,7 +34,7 @@ export interface ConfigState {
   settings: ConfigCollection;
 }
 
-export type StateEvent =
+export type StateOperation =
   | {
       type: 'record.upserted';
       collection: ConfigCollectionName;
@@ -48,6 +48,13 @@ export type StateEvent =
     };
 
 const jsonRecordSchema = z.record(z.string(), z.json());
+
+export type StateEvent =
+  | StateOperation
+  | {
+      type: 'records.batch';
+      operations: StateOperation[];
+    };
 
 export const configStateSchema = z.object({
   schemaVersion: z.literal(1),
@@ -64,7 +71,7 @@ export const configStateSchema = z.object({
   settings: jsonRecordSchema,
 });
 
-export const stateEventSchema = z.discriminatedUnion('type', [
+const stateOperationSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('record.upserted'),
     collection: z.enum(CONFIG_COLLECTION_NAMES),
@@ -75,6 +82,14 @@ export const stateEventSchema = z.discriminatedUnion('type', [
     type: z.literal('record.deleted'),
     collection: z.enum(CONFIG_COLLECTION_NAMES),
     id: z.string().min(1),
+  }),
+]);
+
+export const stateEventSchema = z.discriminatedUnion('type', [
+  ...stateOperationSchema.options,
+  z.object({
+    type: z.literal('records.batch'),
+    operations: z.array(stateOperationSchema).min(1),
   }),
 ]);
 
@@ -96,6 +111,14 @@ export function createEmptyConfigState(): ConfigState {
 }
 
 export function reduceState(state: ConfigState, event: StateEvent): ConfigState {
+  if (event.type === 'records.batch') {
+    return configStateSchema.parse(
+      event.operations.reduce(
+        (current, operation) => reduceState(current, operation),
+        state,
+      ),
+    ) as ConfigState;
+  }
   const currentCollection = state[event.collection];
   let nextCollection: ConfigCollection;
 

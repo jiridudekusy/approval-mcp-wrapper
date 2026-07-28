@@ -14,6 +14,36 @@ async function tempDataDir(): Promise<string> {
 }
 
 describe('ConfigStateStore', () => {
+  it('applies a multi-record event as one durable journal mutation', async () => {
+    const dataDir = await tempDataDir();
+    const store = await createConfigStateStore(dataDir);
+
+    await store.mutate({
+      type: 'records.batch',
+      operations: [
+        {
+          type: 'record.upserted',
+          collection: 'approvals',
+          id: 'approval-1',
+          value: { status: 'approved' },
+        },
+        {
+          type: 'record.upserted',
+          collection: 'grants',
+          id: 'grant-1',
+          value: { approvalId: 'approval-1' },
+        },
+      ],
+    });
+
+    expect(store.read((state) => state.approvals['approval-1'])).toEqual({
+      status: 'approved',
+    });
+    expect(store.read((state) => state.grants['grant-1'])).toEqual({
+      approvalId: 'approval-1',
+    });
+  });
+
   it('replays acknowledged events after reopening', async () => {
     const dataDir = await tempDataDir();
     const store = await createConfigStateStore(dataDir);
