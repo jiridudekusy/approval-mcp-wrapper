@@ -43,6 +43,7 @@ export async function registerUpstreamRoutes(
     sessions: SessionService;
     state: ConfigStateStore;
     credentialVault?: CredentialVault;
+    onUpstreamsChanged?(): Promise<void>;
   },
 ): Promise<void> {
   app.get('/api/admin/upstreams', async (request, reply) => {
@@ -96,6 +97,7 @@ export async function registerUpstreamRoutes(
       id,
       value: record as unknown as JsonValue,
     });
+    await options.onUpstreamsChanged?.();
     reply.code(201);
     return publicUpstream(record);
   });
@@ -146,6 +148,7 @@ export async function registerUpstreamRoutes(
       id,
       value: updated as unknown as JsonValue,
     });
+    await options.onUpstreamsChanged?.();
     return publicUpstream(updated);
   });
 }

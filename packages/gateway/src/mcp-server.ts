@@ -33,19 +33,23 @@ export function validateOrigin(
 
 interface TokenScopedGatewayOptions {
   coordinator: CallCoordinator;
-  catalogFor(tokenId: ClientTokenId): readonly PublicTool[];
+  catalogFor(
+    tokenId: ClientTokenId,
+  ): readonly PublicTool[] | Promise<readonly PublicTool[]>;
 }
 
 export class TokenScopedGateway {
   readonly #coordinator: CallCoordinator;
-  readonly #catalogFor: (tokenId: ClientTokenId) => readonly PublicTool[];
+  readonly #catalogFor: (
+    tokenId: ClientTokenId,
+  ) => readonly PublicTool[] | Promise<readonly PublicTool[]>;
 
   constructor(options: TokenScopedGatewayOptions) {
     this.#coordinator = options.coordinator;
     this.#catalogFor = options.catalogFor;
   }
 
-  listTools(tokenId: ClientTokenId): readonly PublicTool[] {
+  async listTools(tokenId: ClientTokenId): Promise<readonly PublicTool[]> {
     return this.#catalogFor(tokenId);
   }
 
@@ -55,7 +59,7 @@ export class TokenScopedGateway {
     argumentsValue: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<CallToolResult> {
-    const tool = this.#catalogFor(tokenId).find(
+    const tool = (await this.#catalogFor(tokenId)).find(
       (candidate) => candidate.name === publicName,
     );
     if (tool === undefined) {
@@ -95,8 +99,12 @@ function bearerToken(
 
 export function createMcpHttpHandler(
   options: McpHttpHandlerOptions,
-): (request: IncomingMessage, response: ServerResponse) => Promise<void> {
-  return async (request, response) => {
+): (
+  request: IncomingMessage,
+  response: ServerResponse,
+  parsedBody?: unknown,
+) => Promise<void> {
+  return async (request, response, parsedBody) => {
     try {
       validateOrigin(singleHeader(request.headers.origin), options.allowedOrigins);
       const plaintext = bearerToken(request.headers.authorization);
@@ -116,7 +124,7 @@ export function createMcpHttpHandler(
         { capabilities: { tools: { listChanged: true } } },
       );
       server.setRequestHandler(ListToolsRequestSchema, async () => ({
-        tools: options.gateway.listTools(tokenId).map((tool) => ({
+        tools: (await options.gateway.listTools(tokenId)).map((tool) => ({
           name: tool.name,
           ...(tool.description === undefined
             ? {}
@@ -166,7 +174,7 @@ export function createMcpHttpHandler(
       >[0]);
       // The SDK declarations are not exact-optional clean.
       await server.connect(transport as Transport);
-      await transport.handleRequest(request, response);
+      await transport.handleRequest(request, response, parsedBody);
     } catch (error) {
       if (error instanceof GatewayError && error.code === 'invalid_origin') {
         response.writeHead(403).end();

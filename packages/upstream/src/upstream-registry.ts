@@ -58,6 +58,20 @@ export class UpstreamRegistry extends EventEmitter {
     this.#now = options.now ?? (() => new Date());
   }
 
+  async replaceUpstreams(upstreams: readonly Upstream[]): Promise<void> {
+    await this.close();
+    this.#upstreams.clear();
+    this.#catalogs.clear();
+    this.#health.clear();
+    for (const upstream of upstreams) {
+      this.#upstreams.set(upstream.id, upstream);
+    }
+  }
+
+  upstreamIds(): readonly UpstreamId[] {
+    return [...this.#upstreams.keys()];
+  }
+
   async refresh(upstreamId: UpstreamId): Promise<ToolCatalog> {
     const upstream = this.#requireUpstream(upstreamId);
     try {

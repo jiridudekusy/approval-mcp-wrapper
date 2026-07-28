@@ -22,6 +22,7 @@ export interface AdminRouteOptions {
   approvals?: ApprovalOrchestrator;
   journal?: CallJournal;
   broker?: ApprovalEventBroker;
+  onUpstreamsChanged?(): Promise<void>;
 }
 
 export async function registerAdminRoutes(
