@@ -1,6 +1,7 @@
 .worktrees/
 node_modules/
 dist/
+dist-types/
 coverage/
 playwright-report/
 test-results/
