@@ -174,6 +174,7 @@ await registerAdminRoutes(app, {
   journal,
   onUpstreamsChanged: async () =>
     upstreams.replaceUpstreams(configuredUpstreams()),
+  discoverTools: (upstreamId) => upstreams.refresh(upstreamId),
 });
 app.route({
   method: ['GET', 'POST', 'DELETE'],

@@ -26,7 +26,16 @@ afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
 });
 
-async function fixture() {
+async function fixture(options?: {
+  discoverTools?(upstreamId: string): Promise<{
+    upstreamId: string;
+    refreshedAt: string;
+    tools: readonly {
+      name: string;
+      inputSchema: Record<string, unknown>;
+    }[];
+  }>;
+}) {
   const store = await createConfigStateStore(
     await mkdtemp(join(tmpdir(), 'approval-admin-api-')),
   );
@@ -49,6 +58,7 @@ async function fixture() {
     sessions,
     state: store,
     tokens: new TokenService(new StateStoreTokenRepository(store)),
+    discoverTools: options?.discoverTools,
   });
   apps.push(app);
   return {
@@ -98,5 +108,81 @@ describe('admin API', () => {
     expect(listed.json()).toEqual([
       expect.objectContaining({ label: 'Agent' }),
     ]);
+  });
+
+  it('discovers tools for one configured upstream', async () => {
+    let discoveredId: string | undefined;
+    const { app, authHeaders } = await fixture({
+      discoverTools: async (upstreamId) => {
+        discoveredId = upstreamId;
+        return {
+          upstreamId,
+          refreshedAt: '2026-07-28T00:00:00.000Z',
+          tools: [
+            { name: 'zeta', inputSchema: { type: 'object' } },
+            { name: 'alpha', inputSchema: { type: 'object' } },
+          ],
+        };
+      },
+    });
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/admin/upstreams',
+      headers: authHeaders,
+      payload: {
+        alias: 'signal',
+        url: 'https://signal.example/mcp',
+        allowPrivateNetwork: false,
+      },
+    });
+    const upstreamId = created.json<{ id: string }>().id;
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/admin/upstreams/${upstreamId}/tools`,
+      headers: { cookie: authHeaders.cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(discoveredId).toBe(upstreamId);
+    expect(
+      response.json<{ tools: { name: string }[] }>().tools.map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(['alpha', 'zeta']);
+  });
+
+  it('bounds unknown and failed upstream discovery responses', async () => {
+    const { app, authHeaders } = await fixture({
+      discoverTools: async () => {
+        throw new Error('secret connection detail');
+      },
+    });
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: '/api/admin/upstreams/missing/tools',
+          headers: { cookie: authHeaders.cookie },
+        })
+      ).statusCode,
+    ).toBe(404);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/admin/upstreams',
+      headers: authHeaders,
+      payload: {
+        alias: 'offline',
+        url: 'https://offline.example/mcp',
+        allowPrivateNetwork: false,
+      },
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/admin/upstreams/${created.json<{ id: string }>().id}/tools`,
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(response.statusCode).toBe(502);
+    expect(response.body).not.toContain('secret connection detail');
   });
 });

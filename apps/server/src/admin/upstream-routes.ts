@@ -6,6 +6,7 @@ import type {
   UpstreamId,
 } from '@approval-mcp/contracts';
 import type { CredentialVault, UpstreamCredentials } from '@approval-mcp/upstream';
+import type { ToolCatalog } from '@approval-mcp/upstream';
 import type { ConfigStateStore } from '@approval-mcp/state-store';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -44,6 +45,7 @@ export async function registerUpstreamRoutes(
     state: ConfigStateStore;
     credentialVault?: CredentialVault;
     onUpstreamsChanged?(): Promise<void>;
+    discoverTools?(upstreamId: UpstreamId): Promise<ToolCatalog>;
   },
 ): Promise<void> {
   app.get('/api/admin/upstreams', async (request, reply) => {
@@ -53,6 +55,50 @@ export async function registerUpstreamRoutes(
         publicUpstream(value as unknown as Upstream),
       ),
     );
+  });
+
+  app.get('/api/admin/upstreams/:id/tools', async (request, reply) => {
+    if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
+    const { id } = request.params as { id: string };
+    const upstream = options.state.read((state) => state.upstreams[id]);
+    if (upstream === undefined) {
+      reply.code(404);
+      return {
+        error: {
+          code: 'upstream.not_found',
+          message: 'Upstream not found',
+          requestId: request.id,
+        },
+      };
+    }
+    if (options.discoverTools === undefined) {
+      reply.code(503);
+      return {
+        error: {
+          code: 'upstream.discovery_unavailable',
+          message: 'Tool discovery is unavailable',
+          requestId: request.id,
+        },
+      };
+    }
+    try {
+      const catalog = await options.discoverTools(id as UpstreamId);
+      return {
+        ...catalog,
+        tools: [...catalog.tools].sort((left, right) =>
+          left.name.localeCompare(right.name),
+        ),
+      };
+    } catch {
+      reply.code(502);
+      return {
+        error: {
+          code: 'upstream.discovery_failed',
+          message: 'The upstream tool catalog could not be loaded',
+          requestId: request.id,
+        },
+      };
+    }
   });
 
   app.post('/api/admin/upstreams', async (request, reply) => {

@@ -1,8 +1,9 @@
 import type { ConfigStateStore } from '@approval-mcp/state-store';
 import type { TokenService } from '@approval-mcp/gateway';
 import type { ApprovalOrchestrator } from '@approval-mcp/gateway';
-import type { CredentialVault } from '@approval-mcp/upstream';
+import type { CredentialVault, ToolCatalog } from '@approval-mcp/upstream';
 import type { CallJournal } from '@approval-mcp/call-journal';
+import type { UpstreamId } from '@approval-mcp/contracts';
 import type { FastifyInstance } from 'fastify';
 
 import type { SessionService } from '../session-store.js';
@@ -23,6 +24,7 @@ export interface AdminRouteOptions {
   journal?: CallJournal;
   broker?: ApprovalEventBroker;
   onUpstreamsChanged?(): Promise<void>;
+  discoverTools?(upstreamId: UpstreamId): Promise<ToolCatalog>;
 }
 
 export async function registerAdminRoutes(
