@@ -13,6 +13,16 @@ export async function buildServerApp(options: {
     bodyLimit: 1024 * 1024,
   });
   await registerAuthRoutes(app, options.auth);
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error({ error }, 'Request failed');
+    reply.code(500).send({
+      error: {
+        code: 'server.internal_error',
+        message: 'The request could not be completed',
+        requestId: request.id,
+      },
+    });
+  });
   app.get('/health', async () => ({ status: 'ok' }));
   return app;
 }

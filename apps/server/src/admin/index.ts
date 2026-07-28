@@ -1,0 +1,42 @@
+import type { ConfigStateStore } from '@approval-mcp/state-store';
+import type { TokenService } from '@approval-mcp/gateway';
+import type { ApprovalOrchestrator } from '@approval-mcp/gateway';
+import type { CredentialVault } from '@approval-mcp/upstream';
+import type { CallJournal } from '@approval-mcp/call-journal';
+import type { FastifyInstance } from 'fastify';
+
+import type { SessionService } from '../session-store.js';
+import { registerTokenRoutes } from './token-routes.js';
+import { registerApprovalRoutes } from './approval-routes.js';
+import { registerHistoryRoutes } from './history-routes.js';
+import { registerPolicyRoutes } from './policy-routes.js';
+import { registerSystemRoutes } from './system-routes.js';
+import { registerUpstreamRoutes } from './upstream-routes.js';
+import { ApprovalEventBroker } from './sse-broker.js';
+
+export interface AdminRouteOptions {
+  sessions: SessionService;
+  state: ConfigStateStore;
+  tokens: TokenService;
+  credentialVault?: CredentialVault;
+  approvals?: ApprovalOrchestrator;
+  journal?: CallJournal;
+  broker?: ApprovalEventBroker;
+}
+
+export async function registerAdminRoutes(
+  app: FastifyInstance,
+  options: AdminRouteOptions,
+): Promise<void> {
+  await registerTokenRoutes(app, options);
+  await registerUpstreamRoutes(app, options);
+  await registerPolicyRoutes(app, options);
+  await registerApprovalRoutes(app, {
+    ...options,
+    broker: options.broker ?? new ApprovalEventBroker(),
+  });
+  await registerHistoryRoutes(app, options);
+  await registerSystemRoutes(app, options);
+}
+
+export * from './sse-broker.js';
