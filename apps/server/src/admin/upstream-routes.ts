@@ -101,6 +101,38 @@ export async function registerUpstreamRoutes(
     }
   });
 
+  app.get(
+    '/api/admin/upstreams/:id/deletion-impact',
+    async (request, reply) => {
+      if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
+      const { id } = request.params as { id: string };
+      const impact = options.state.read((state) => {
+        if (state.upstreams[id] === undefined) return undefined;
+        return {
+          policies: Object.values(state.policies).filter(
+            (record) =>
+              (record as { upstreamId?: unknown }).upstreamId === id,
+          ).length,
+          grants: Object.values(state.grants).filter(
+            (record) =>
+              (record as { upstreamId?: unknown }).upstreamId === id,
+          ).length,
+        };
+      });
+      if (impact === undefined) {
+        reply.code(404);
+        return {
+          error: {
+            code: 'upstream.not_found',
+            message: 'Upstream not found',
+            requestId: request.id,
+          },
+        };
+      }
+      return impact;
+    },
+  );
+
   app.post('/api/admin/upstreams', async (request, reply) => {
     if (!await authorizeAdmin(request, reply, options.sessions, true)) return;
     const body = request.body as {
@@ -196,5 +228,64 @@ export async function registerUpstreamRoutes(
     });
     await options.onUpstreamsChanged?.();
     return publicUpstream(updated);
+  });
+
+  app.delete('/api/admin/upstreams/:id', async (request, reply) => {
+    if (!await authorizeAdmin(request, reply, options.sessions, true)) return;
+    const { id } = request.params as { id: string };
+    const body = request.body as { version?: unknown };
+    const deletion = options.state.read((state) => {
+      const current = state.upstreams[id];
+      if (current === undefined) return undefined;
+      const record = current as unknown as Upstream;
+      const policyIds = Object.entries(state.policies)
+        .filter(
+          ([, value]) =>
+            (value as { upstreamId?: unknown }).upstreamId === id,
+        )
+        .map(([policyId]) => policyId);
+      const grantIds = Object.entries(state.grants)
+        .filter(
+          ([, value]) =>
+            (value as { upstreamId?: unknown }).upstreamId === id,
+        )
+        .map(([grantId]) => grantId);
+      return { record, policyIds, grantIds };
+    });
+    if (deletion === undefined) {
+      reply.code(404);
+      return {
+        error: {
+          code: 'upstream.not_found',
+          message: 'Upstream not found',
+          requestId: request.id,
+        },
+      };
+    }
+    if (body.version !== deletion.record.version) {
+      return conflict(request, reply);
+    }
+    await options.state.mutate({
+      type: 'records.batch',
+      operations: [
+        ...deletion.grantIds.map((grantId) => ({
+          type: 'record.deleted' as const,
+          collection: 'grants' as const,
+          id: grantId,
+        })),
+        ...deletion.policyIds.map((policyId) => ({
+          type: 'record.deleted' as const,
+          collection: 'policies' as const,
+          id: policyId,
+        })),
+        {
+          type: 'record.deleted',
+          collection: 'upstreams',
+          id,
+        },
+      ],
+    });
+    await options.onUpstreamsChanged?.();
+    return reply.code(204).send();
   });
 }

@@ -175,6 +175,30 @@ h1 { letter-spacing: -0.045em; }
 .record-badges { display: flex; gap: 5px; }
 .record-badges span, .record-list article > span:last-child { border: 1px solid var(--line); border-radius: 100px; padding: 5px 7px; color: var(--muted); font-size: 8px; }
 .upstream-record .tool-catalog { grid-column: 1 / -1; }
+.upstream-actions { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
+.upstream-actions button, .management-actions button {
+  border: 1px solid var(--line); background: var(--panel-soft); border-radius: 8px;
+  padding: 8px 11px; cursor: pointer;
+}
+.upstream-actions .danger-link, .management-actions .danger-button { color: #ffaaa2; }
+.upstream-edit-form, .delete-confirmation {
+  grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+  background: #121815;
+}
+.upstream-edit-form label { display: grid; gap: 6px; color: var(--muted); font-size: 11px; }
+.upstream-edit-form input {
+  min-width: 0; border: 1px solid var(--line); background: #0d1210; color: var(--ink);
+  border-radius: 8px; padding: 10px;
+}
+.upstream-edit-form .check-row { display: flex; align-items: center; }
+.management-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
+.management-actions .primary { color: #102017; background: var(--mint); }
+.delete-confirmation > strong, .delete-confirmation > p, .delete-confirmation > dl { grid-column: 1 / -1; }
+.delete-confirmation p { margin: 0; color: var(--muted); }
+.delete-confirmation dl { display: grid; gap: 7px; }
+.delete-confirmation dl div { display: flex; justify-content: space-between; }
+.delete-confirmation dd { margin: 0; color: var(--amber); }
 .tool-catalog { border-top: 1px solid var(--line); padding: 14px 0 2px; }
 .tool-catalog-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .tool-catalog-heading .text-button { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
@@ -257,6 +281,7 @@ h1 { letter-spacing: -0.045em; }
   .scope-form code { grid-column: 1; }
   .decision-actions { grid-template-columns: 1fr; }
   .admin-form, .inline-form, .policy-form, .selectors { grid-template-columns: 1fr; }
+  .upstream-edit-form, .delete-confirmation { grid-template-columns: 1fr; }
   .admin-form .check-row, .warning { grid-column: 1; }
   .page-header .compact { margin-left: 10px; }
   .history-filter { grid-template-columns: 1fr; }
