@@ -99,6 +99,16 @@ describe('evaluatePolicy', () => {
     });
   });
 
+  it('gives approval precedence over allow when profiles overlap', () => {
+    const decision = evaluatePolicy(
+      input({
+        policies: [policy('allow'), policy('require_approval')],
+      }),
+    );
+
+    expect(decision.outcome).toBe('require_approval');
+  });
+
   it('fails closed when no rule matches', () => {
     expect(evaluatePolicy(input())).toEqual({
       outcome: 'deny',

@@ -14,6 +14,7 @@ export interface ManagedUpstream {
 
 export interface DeletionImpact {
   policies: number;
+  profileRules: number;
   grants: number;
 }
 
@@ -154,6 +155,7 @@ export function UpstreamDeleteConfirmation({
       <p>{t('upstreams.deleteWarning')} <code>{alias}</code></p>
       <dl>
         <div><dt>{t('upstreams.affectedPolicies')}</dt><dd>{formatNumber(impact.policies)}</dd></div>
+        <div><dt>{t('upstreams.affectedProfileRules')}</dt><dd>{formatNumber(impact.profileRules)}</dd></div>
         <div><dt>{t('upstreams.affectedGrants')}</dt><dd>{formatNumber(impact.grants)}</dd></div>
       </dl>
       {error === true && (

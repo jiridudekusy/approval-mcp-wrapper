@@ -43,7 +43,7 @@ describe('upstream management UI', () => {
         null,
         createElement(UpstreamDeleteConfirmation, {
           alias: 'signal',
-          impact: { policies: 2, grants: 3 },
+          impact: { policies: 2, profileRules: 4, grants: 3 },
           busy: false,
           error: false,
           onConfirm: () => undefined,
@@ -55,5 +55,6 @@ describe('upstream management UI', () => {
     expect(html).toContain('signal');
     expect(html).toContain('2');
     expect(html).toContain('3');
+    expect(html).toContain('4');
   });
 });

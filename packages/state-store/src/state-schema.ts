@@ -14,6 +14,9 @@ export const CONFIG_COLLECTION_NAMES = [
   'adminSessions',
   'plugins',
   'settings',
+  'profiles',
+  'profileRules',
+  'tokenProfileAssignments',
 ] as const;
 
 export type ConfigCollectionName = (typeof CONFIG_COLLECTION_NAMES)[number];
@@ -32,6 +35,9 @@ export interface ConfigState {
   adminSessions: ConfigCollection;
   plugins: ConfigCollection;
   settings: ConfigCollection;
+  profiles: ConfigCollection;
+  profileRules: ConfigCollection;
+  tokenProfileAssignments: ConfigCollection;
 }
 
 export type StateOperation =
@@ -69,6 +75,9 @@ export const configStateSchema = z.object({
   adminSessions: jsonRecordSchema,
   plugins: jsonRecordSchema,
   settings: jsonRecordSchema,
+  profiles: jsonRecordSchema.default({}),
+  profileRules: jsonRecordSchema.default({}),
+  tokenProfileAssignments: jsonRecordSchema.default({}),
 });
 
 const stateOperationSchema = z.discriminatedUnion('type', [
@@ -107,6 +116,9 @@ export function createEmptyConfigState(): ConfigState {
     adminSessions: {},
     plugins: {},
     settings: {},
+    profiles: {},
+    profileRules: {},
+    tokenProfileAssignments: {},
   };
 }
 

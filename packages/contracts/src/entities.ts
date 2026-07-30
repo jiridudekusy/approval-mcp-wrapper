@@ -5,6 +5,9 @@ import type {
   ClientTokenId,
   GrantId,
   PolicyId,
+  ProfileId,
+  ProfileRuleId,
+  TokenProfileAssignmentId,
   UpstreamId,
 } from './ids.js';
 
@@ -62,6 +65,28 @@ export interface Policy extends VersionedRecord {
   outcome: PolicyOutcome;
   predicates: Predicate[];
   enabled: boolean;
+}
+
+export interface Profile extends VersionedRecord {
+  id: ProfileId;
+  name: string;
+  isDefault: boolean;
+}
+
+export interface ProfileRule extends VersionedRecord {
+  id: ProfileRuleId;
+  profileId: ProfileId;
+  upstreamId: UpstreamId;
+  toolName?: string;
+  outcome: PolicyOutcome;
+  predicates: Predicate[];
+  enabled: boolean;
+}
+
+export interface TokenProfileAssignment extends VersionedRecord {
+  id: TokenProfileAssignmentId;
+  clientTokenId: ClientTokenId;
+  profileId: ProfileId;
 }
 
 export interface Grant extends VersionedRecord {

@@ -37,6 +37,7 @@ async function fixture(options?: {
     }[];
   }>;
   onUpstreamsChanged?(): Promise<void>;
+  seed?(store: Awaited<ReturnType<typeof createConfigStateStore>>): Promise<void>;
 }) {
   const store = await createConfigStateStore(
     await mkdtemp(join(tmpdir(), 'approval-admin-api-')),
@@ -56,6 +57,7 @@ async function fixture(options?: {
       secureCookies: true,
     },
   });
+  await options?.seed?.(store);
   await registerAdminRoutes(app, {
     sessions,
     state: store,
@@ -76,6 +78,332 @@ async function fixture(options?: {
 }
 
 describe('admin API', () => {
+  it('migrates existing token policies into an assigned profile', async () => {
+    const now = '2026-07-30T00:00:00.000Z';
+    const { app, authHeaders, store } = await fixture({
+      seed: async (state) => {
+        await state.mutate({
+          type: 'records.batch',
+          operations: [
+            {
+              type: 'record.upserted',
+              collection: 'clientTokens',
+              id: 'legacy-token',
+              value: {
+                id: 'legacy-token',
+                label: 'Existing agent',
+                hash: 'hash',
+                salt: 'salt',
+                schemaVersion: 1,
+                createdAt: now,
+                updatedAt: now,
+                version: 1,
+              },
+            },
+            {
+              type: 'record.upserted',
+              collection: 'policies',
+              id: 'legacy-policy',
+              value: {
+                id: 'legacy-policy',
+                clientTokenId: 'legacy-token',
+                upstreamId: 'signal',
+                toolName: 'get_messages',
+                outcome: 'require_approval',
+                predicates: [],
+                enabled: true,
+                schemaVersion: 1,
+                createdAt: now,
+                updatedAt: now,
+                version: 1,
+              },
+            },
+            {
+              type: 'record.upserted',
+              collection: 'policies',
+              id: 'legacy-deny',
+              value: {
+                id: 'legacy-deny',
+                clientTokenId: 'legacy-token',
+                upstreamId: 'signal',
+                toolName: 'get_messages',
+                outcome: 'deny',
+                predicates: [],
+                enabled: true,
+                schemaVersion: 1,
+                createdAt: now,
+                updatedAt: now,
+                version: 1,
+              },
+            },
+          ],
+        });
+      },
+    });
+
+    const profiles = await app.inject({
+      method: 'GET',
+      url: '/api/admin/profiles',
+      headers: { cookie: authHeaders.cookie },
+    });
+
+    expect(profiles.json()).toEqual([
+      expect.objectContaining({ name: 'Default', isDefault: true }),
+      expect.objectContaining({ name: 'Migrated: Existing agent' }),
+      expect.objectContaining({ name: 'Migrated: Existing agent (2)' }),
+    ]);
+    expect(
+      store.read((state) => ({
+        legacyPolicy: state.policies['legacy-policy'],
+        rules: Object.values(state.profileRules),
+        assignments: Object.values(state.tokenProfileAssignments),
+      })),
+    ).toEqual({
+      legacyPolicy: undefined,
+      rules: [
+        expect.objectContaining({
+          toolName: 'get_messages',
+          outcome: 'require_approval',
+        }),
+        expect.objectContaining({
+          toolName: 'get_messages',
+          outcome: 'deny',
+        }),
+      ],
+      assignments: [
+        expect.objectContaining({ clientTokenId: 'legacy-token' }),
+        expect.objectContaining({ clientTokenId: 'legacy-token' }),
+      ],
+    });
+    expect(
+      store.read((state) =>
+        new Set(
+          Object.values(state.profileRules).map(
+            (rule) => (rule as { profileId: string }).profileId,
+          ),
+        ).size,
+      ),
+    ).toBe(2);
+  });
+
+  it('manages profiles, hierarchical rules, and multiple token assignments', async () => {
+    const { app, authHeaders } = await fixture();
+    const defaults = await app.inject({
+      method: 'GET',
+      url: '/api/admin/profiles',
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(defaults.json()).toEqual([
+      expect.objectContaining({ name: 'Default', isDefault: true }),
+    ]);
+
+    const tokenResponse = await app.inject({
+      method: 'POST',
+      url: '/api/admin/tokens',
+      headers: authHeaders,
+      payload: { label: 'Claude Code' },
+    });
+    const tokenId = tokenResponse.json<{ record: { id: string } }>().record.id;
+    const upstreamResponse = await app.inject({
+      method: 'POST',
+      url: '/api/admin/upstreams',
+      headers: authHeaders,
+      payload: {
+        alias: 'signal',
+        url: 'https://signal.example/mcp',
+        allowPrivateNetwork: false,
+      },
+    });
+    const upstreamId = upstreamResponse.json<{ id: string }>().id;
+    const profileResponse = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profiles',
+      headers: authHeaders,
+      payload: { name: 'Messaging' },
+    });
+    const profile = profileResponse.json<{ id: string }>();
+    const secondResponse = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profiles',
+      headers: authHeaders,
+      payload: { name: 'Read only' },
+    });
+    const second = secondResponse.json<{ id: string }>();
+
+    expect(
+      (
+        await app.inject({
+          method: 'PUT',
+          url: `/api/admin/profiles/${profile.id}/rules`,
+          headers: authHeaders,
+          payload: { upstreamId, outcome: 'allow' },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: 'PUT',
+          url: `/api/admin/profiles/${profile.id}/rules/bulk`,
+          headers: authHeaders,
+          payload: {
+            upstreamId,
+            toolNames: ['get_messages', 'list_groups'],
+            outcome: 'allow',
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await app.inject({
+          method: 'PUT',
+          url: `/api/admin/profiles/${profile.id}/rules`,
+          headers: authHeaders,
+          payload: {
+            upstreamId,
+            toolName: 'send_message',
+            outcome: 'require_approval',
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+
+    const rules = await app.inject({
+      method: 'GET',
+      url: `/api/admin/profiles/${profile.id}/rules`,
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(rules.json()).toEqual([
+      expect.objectContaining({ outcome: 'allow' }),
+      expect.objectContaining({ toolName: 'get_messages', outcome: 'allow' }),
+      expect.objectContaining({ toolName: 'list_groups', outcome: 'allow' }),
+      expect.objectContaining({
+        toolName: 'send_message',
+        outcome: 'require_approval',
+      }),
+    ]);
+
+    const assigned = await app.inject({
+      method: 'PUT',
+      url: `/api/admin/tokens/${tokenId}/profiles`,
+      headers: authHeaders,
+      payload: { profileIds: [profile.id, second.id] },
+    });
+    expect(assigned.statusCode).toBe(200);
+    expect(assigned.json()).toEqual({ profileIds: [profile.id, second.id] });
+
+    const tokens = await app.inject({
+      method: 'GET',
+      url: '/api/admin/tokens',
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(
+      tokens
+        .json<{ id: string; profileIds: string[] }[]>()
+        .find((token) => token.id === tokenId)?.profileIds,
+    ).toEqual([profile.id, second.id]);
+  });
+
+  it('retires direct policy writes that would bypass profiles', async () => {
+    const { app, authHeaders } = await fixture();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/policies',
+      headers: authHeaders,
+      payload: {
+        clientTokenId: 'token',
+        upstreamId: 'upstream',
+        toolName: 'send',
+        outcome: 'allow',
+      },
+    });
+
+    expect(response.statusCode).toBe(410);
+  });
+
+  it('keeps exactly one default under concurrent default changes', async () => {
+    const { app, authHeaders } = await fixture();
+    const [first, second] = await Promise.all(
+      ['First', 'Second'].map(async (name) => {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/admin/profiles',
+          headers: authHeaders,
+          payload: { name },
+        });
+        return response.json<{ id: string; version: number }>();
+      }),
+    );
+
+    await Promise.all(
+      [first, second].map((profile) =>
+        app.inject({
+          method: 'PUT',
+          url: `/api/admin/profiles/${profile.id}`,
+          headers: authHeaders,
+          payload: { version: profile.version, isDefault: true },
+        }),
+      ),
+    );
+    const profiles = await app.inject({
+      method: 'GET',
+      url: '/api/admin/profiles',
+      headers: { cookie: authHeaders.cookie },
+    });
+
+    expect(
+      profiles
+        .json<{ isDefault: boolean }[]>()
+        .filter((profile) => profile.isDefault),
+    ).toHaveLength(1);
+  });
+
+  it('adds concurrent token profile assignments incrementally', async () => {
+    const { app, authHeaders } = await fixture();
+    const token = await app.inject({
+      method: 'POST',
+      url: '/api/admin/tokens',
+      headers: authHeaders,
+      payload: { label: 'Agent' },
+    });
+    const tokenId = token.json<{ record: { id: string } }>().record.id;
+    const profiles = await Promise.all(
+      ['One', 'Two'].map(async (name) => {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/admin/profiles',
+          headers: authHeaders,
+          payload: { name },
+        });
+        return response.json<{ id: string }>();
+      }),
+    );
+
+    await Promise.all(
+      profiles.map((profile) =>
+        app.inject({
+          method: 'PUT',
+          url: `/api/admin/tokens/${tokenId}/profiles/${profile.id}`,
+          headers: authHeaders,
+          payload: { assigned: true },
+        }),
+      ),
+    );
+    const tokens = await app.inject({
+      method: 'GET',
+      url: '/api/admin/tokens',
+      headers: { cookie: authHeaders.cookie },
+    });
+
+    expect(
+      tokens
+        .json<{ id: string; profileIds: string[] }[]>()
+        .find((value) => value.id === tokenId)?.profileIds.sort(),
+    ).toEqual(profiles.map((profile) => profile.id).sort());
+  });
+
   it('rejects unauthenticated requests and requires CSRF on mutations', async () => {
     const { app, authHeaders } = await fixture();
 
@@ -396,6 +724,23 @@ describe('admin API', () => {
         },
         {
           type: 'record.upserted',
+          collection: 'profileRules',
+          id: 'profile-rule-1',
+          value: {
+            id: 'profile-rule-1',
+            profileId: 'profile-1',
+            upstreamId: upstream.id,
+            outcome: 'allow',
+            predicates: [],
+            enabled: true,
+            schemaVersion: 1,
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+          },
+        },
+        {
+          type: 'record.upserted',
           collection: 'grants',
           id: 'grant-1',
           value: {
@@ -418,7 +763,7 @@ describe('admin API', () => {
       url: `/api/admin/upstreams/${upstream.id}/deletion-impact`,
       headers: { cookie: authHeaders.cookie },
     });
-    expect(impact.json()).toEqual({ policies: 1, grants: 1 });
+    expect(impact.json()).toEqual({ policies: 1, profileRules: 1, grants: 1 });
 
     const removed = await app.inject({
       method: 'DELETE',
@@ -432,11 +777,13 @@ describe('admin API', () => {
         upstream: state.upstreams[upstream.id],
         policy: state.policies['policy-1'],
         grant: state.grants['grant-1'],
+        profileRule: state.profileRules['profile-rule-1'],
       })),
     ).toEqual({
       upstream: undefined,
       policy: undefined,
       grant: undefined,
+      profileRule: undefined,
     });
     expect(reloads).toBe(2);
   });

@@ -62,7 +62,7 @@ interface CoordinatorJournal {
 }
 
 interface PolicyCallCoordinatorOptions {
-  policies(): readonly Policy[];
+  policies(input: AuthorizedToolCall): readonly Policy[];
   grants(): readonly Grant[];
   approvals: CoordinatorApprovalService;
   upstream: CoordinatorUpstream;
@@ -115,7 +115,7 @@ export class PolicyCallCoordinator implements CallCoordinator {
       context,
       requestHash,
       normalizationVersion: this.#options.normalizationVersion ?? 1,
-      policies: this.#options.policies(),
+      policies: this.#options.policies(input),
       grants: this.#options.grants(),
       now: startedAt.toISOString(),
     });

@@ -67,21 +67,21 @@ export function evaluatePolicy(input: PolicyInput): PolicyDecision {
     };
   }
 
-  const explicitAllow = matchingPolicies.find((policy) => policy.outcome === 'allow');
-  if (explicitAllow !== undefined) {
-    return {
-      outcome: 'allow',
-      reasonCode: 'policy.allowed',
-      policyId: explicitAllow.id,
-    };
-  }
-
   const approval = matchingPolicies.find((policy) => policy.outcome === 'require_approval');
   if (approval !== undefined) {
     return {
       outcome: 'require_approval',
       reasonCode: 'approval.required',
       policyId: approval.id,
+    };
+  }
+
+  const explicitAllow = matchingPolicies.find((policy) => policy.outcome === 'allow');
+  if (explicitAllow !== undefined) {
+    return {
+      outcome: 'allow',
+      reasonCode: 'policy.allowed',
+      policyId: explicitAllow.id,
     };
   }
 

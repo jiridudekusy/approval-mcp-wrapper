@@ -10,4 +10,7 @@ export type CallId = Brand<string, 'CallId'>;
 export type ClientTokenId = Brand<string, 'ClientTokenId'>;
 export type GrantId = Brand<string, 'GrantId'>;
 export type PolicyId = Brand<string, 'PolicyId'>;
+export type ProfileId = Brand<string, 'ProfileId'>;
+export type ProfileRuleId = Brand<string, 'ProfileRuleId'>;
+export type TokenProfileAssignmentId = Brand<string, 'TokenProfileAssignmentId'>;
 export type UpstreamId = Brand<string, 'UpstreamId'>;

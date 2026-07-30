@@ -113,6 +113,10 @@ export async function registerUpstreamRoutes(
             (record) =>
               (record as { upstreamId?: unknown }).upstreamId === id,
           ).length,
+          profileRules: Object.values(state.profileRules).filter(
+            (record) =>
+              (record as { upstreamId?: unknown }).upstreamId === id,
+          ).length,
           grants: Object.values(state.grants).filter(
             (record) =>
               (record as { upstreamId?: unknown }).upstreamId === id,
@@ -250,7 +254,13 @@ export async function registerUpstreamRoutes(
             (value as { upstreamId?: unknown }).upstreamId === id,
         )
         .map(([grantId]) => grantId);
-      return { record, policyIds, grantIds };
+      const profileRuleIds = Object.entries(state.profileRules)
+        .filter(
+          ([, value]) =>
+            (value as { upstreamId?: unknown }).upstreamId === id,
+        )
+        .map(([profileRuleId]) => profileRuleId);
+      return { record, policyIds, grantIds, profileRuleIds };
     });
     if (deletion === undefined) {
       reply.code(404);
@@ -277,6 +287,11 @@ export async function registerUpstreamRoutes(
           type: 'record.deleted' as const,
           collection: 'policies' as const,
           id: policyId,
+        })),
+        ...deletion.profileRuleIds.map((profileRuleId) => ({
+          type: 'record.deleted' as const,
+          collection: 'profileRules' as const,
+          id: profileRuleId,
         })),
         {
           type: 'record.deleted',

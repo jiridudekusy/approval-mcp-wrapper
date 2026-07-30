@@ -47,7 +47,7 @@ const journalRecordSchema = z.object({
 const snapshotRecordSchema = z.object({
   schemaVersion: z.literal(1),
   sequence: z.number().int().nonnegative(),
-  state: configStateSchema,
+  state: z.record(z.string(), z.unknown()),
   checksum: z.string().length(64),
 });
 
@@ -65,7 +65,7 @@ function verifyJournalRecord(value: unknown): JournalRecord {
 }
 
 function verifySnapshotRecord(value: unknown): SnapshotRecord {
-  const parsed = snapshotRecordSchema.parse(value) as SnapshotRecord;
+  const parsed = snapshotRecordSchema.parse(value);
   const expected = checksum({
     schemaVersion: parsed.schemaVersion,
     sequence: parsed.sequence,
@@ -74,7 +74,10 @@ function verifySnapshotRecord(value: unknown): SnapshotRecord {
   if (parsed.checksum !== expected) {
     throw new StateCorruptionError(`Snapshot checksum mismatch at sequence ${parsed.sequence}`);
   }
-  return parsed;
+  return {
+    ...parsed,
+    state: configStateSchema.parse(parsed.state) as ConfigState,
+  };
 }
 
 class FileConfigStateStore implements ConfigStateStore {

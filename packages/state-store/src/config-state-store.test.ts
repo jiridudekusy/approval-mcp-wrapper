@@ -1,6 +1,7 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { describe, expect, it } from 'vitest';
 
@@ -14,6 +15,46 @@ async function tempDataDir(): Promise<string> {
 }
 
 describe('ConfigStateStore', () => {
+  it('loads a pre-profile snapshot and initializes empty profile collections', async () => {
+    const dataDir = await tempDataDir();
+    const files = createNodeFileOperations();
+    const oldState = {
+      schemaVersion: 1,
+      upstreams: {},
+      clientTokens: {},
+      toolAccess: {},
+      policies: {},
+      grants: {},
+      approvals: {},
+      passkeys: {},
+      recoveryCodes: {},
+      adminSessions: {},
+      plugins: {},
+      settings: {},
+    };
+    const snapshot = { schemaVersion: 1, sequence: 0, state: oldState };
+    const checksum = createHash('sha256')
+      .update(JSON.stringify(snapshot))
+      .digest('hex');
+    await files.ensureDir(dataDir);
+    await files.writeAtomic(
+      join(dataDir, 'state.snapshot.json'),
+      JSON.stringify({ ...snapshot, checksum }),
+    );
+
+    const store = await createConfigStateStore(dataDir);
+
+    expect(store.read((state) => ({
+      profiles: state.profiles,
+      profileRules: state.profileRules,
+      tokenProfileAssignments: state.tokenProfileAssignments,
+    }))).toEqual({
+      profiles: {},
+      profileRules: {},
+      tokenProfileAssignments: {},
+    });
+  });
+
   it('applies a multi-record event as one durable journal mutation', async () => {
     const dataDir = await tempDataDir();
     const store = await createConfigStateStore(dataDir);

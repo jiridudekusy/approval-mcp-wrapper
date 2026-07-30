@@ -36,6 +36,16 @@ export async function registerTokenRoutes(
           ...(record.lastUsedAt === undefined
             ? {}
             : { lastUsedAt: record.lastUsedAt }),
+          profileIds: Object.values(state.tokenProfileAssignments)
+            .filter(
+              (assignment) =>
+                (assignment as { clientTokenId?: unknown }).clientTokenId ===
+                record.id,
+            )
+            .map(
+              (assignment) =>
+                (assignment as { profileId: string }).profileId,
+            ),
         };
       }),
     );

@@ -237,6 +237,41 @@ h1 { letter-spacing: -0.045em; }
   padding: 8px 11px; cursor: pointer; color: #ffaaa2;
 }
 .grant-list button:disabled { opacity: .45; cursor: not-allowed; }
+.profile-manager { margin-top: 48px; border-top: 1px solid var(--line); padding-top: 32px; }
+.profile-heading { display: flex; justify-content: space-between; align-items: end; gap: 20px; }
+.profile-heading h2 { margin: 0; font-size: 28px; }
+.profile-heading p { color: var(--muted); margin-bottom: 0; }
+.profile-heading form { display: flex; gap: 8px; }
+.profile-heading input, .profile-heading button, .profile-actions button,
+.profile-matrix input, .profile-matrix select {
+  border: 1px solid var(--line); background: #0d1210; color: var(--ink);
+  border-radius: 8px; padding: 9px 10px;
+}
+.profile-heading button, .profile-actions button { cursor: pointer; background: var(--panel-soft); }
+.profile-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 14px; }
+.profile-tabs button {
+  display: flex; gap: 8px; align-items: center; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); border-radius: 100px; padding: 9px 13px; cursor: pointer;
+}
+.profile-tabs button.selected { color: var(--ink); background: var(--panel-soft); border-color: #9bf6c144; }
+.profile-tabs small { color: var(--mint); font-size: 8px; text-transform: uppercase; }
+.profile-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 14px; }
+.profile-actions span { margin-right: auto; color: var(--muted); font-size: 11px; }
+.profile-actions .danger-link { color: #ffaaa2; }
+.profile-server { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; background: var(--panel); }
+.profile-server > summary { display: flex; justify-content: space-between; padding: 16px; cursor: pointer; }
+.profile-server > summary span { color: var(--muted); font-size: 11px; }
+.server-default { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 16px 14px; }
+.server-default label { display: grid; grid-template-columns: auto minmax(140px, 1fr); align-items: center; gap: 12px; }
+.bulk-tools { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-top: 1px solid var(--line); padding: 10px 16px; }
+.bulk-tools label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; }
+.profile-tools > div { display: grid; grid-template-columns: auto 1fr minmax(180px, .35fr); gap: 12px; align-items: center; border-top: 1px solid #ffffff0a; padding: 9px 16px; }
+.profile-tools code { color: #c8d5cf; overflow-wrap: anywhere; }
+.profile-assignments { display: grid; gap: 8px; }
+.profile-assignments article { display: grid; grid-template-columns: minmax(160px, .5fr) 1.5fr; gap: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+.profile-assignments article > div { display: flex; flex-wrap: wrap; gap: 12px; }
+.profile-assignments label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.profile-assignments small { color: var(--mint); }
 .selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .policy-list { display: grid; gap: 7px; }
 .policy-list article { display: flex; justify-content: space-between; border: 1px solid var(--line); border-radius: 9px; padding: 12px; }
@@ -303,6 +338,14 @@ h1 { letter-spacing: -0.045em; }
   .admin-form, .inline-form, .policy-form, .selectors { grid-template-columns: 1fr; }
   .grant-list article { grid-template-columns: 1fr; }
   .grant-list button { justify-self: start; }
+  .profile-heading { display: grid; }
+  .profile-heading form, .server-default { grid-template-columns: 1fr; display: grid; }
+  .profile-actions { flex-wrap: wrap; justify-content: flex-start; }
+  .profile-actions span { flex-basis: 100%; }
+  .bulk-tools { align-items: stretch; flex-direction: column; }
+  .profile-tools > div { grid-template-columns: auto 1fr; }
+  .profile-tools select { grid-column: 2; }
+  .profile-assignments article { grid-template-columns: 1fr; }
   .upstream-edit-form, .delete-confirmation { grid-template-columns: 1fr; }
   .admin-form .check-row, .warning { grid-column: 1; }
   .page-header .compact { margin-left: 10px; }

@@ -35,9 +35,13 @@ import type {
   ClientTokenId,
   Grant,
   Policy,
+  PolicyId,
+  Profile,
+  ProfileRule,
+  TokenProfileAssignment,
   Upstream,
 } from '@approval-mcp/contracts';
-import { evaluatePolicy } from '@approval-mcp/policy';
+import { evaluatePolicy, resolveProfileRules } from '@approval-mcp/policy';
 import { readiness } from './operations/health.js';
 import { startRetentionJob } from './operations/retention-job.js';
 
@@ -54,10 +58,49 @@ const upstreams = new UpstreamRegistry({
   upstreams: configuredUpstreams(),
   credentialVault,
 });
-const policies = () =>
+const directPolicies = () =>
   stateStore.read((state) =>
     Object.values(state.policies).map((value) => value as unknown as Policy),
   );
+const profiles = () =>
+  stateStore.read((state) =>
+    Object.values(state.profiles).map((value) => value as unknown as Profile),
+  );
+const profileRules = () =>
+  stateStore.read((state) =>
+    Object.values(state.profileRules).map(
+      (value) => value as unknown as ProfileRule,
+    ),
+  );
+const profileAssignments = () =>
+  stateStore.read((state) =>
+    Object.values(state.tokenProfileAssignments).map(
+      (value) => value as unknown as TokenProfileAssignment,
+    ),
+  );
+const policiesFor = (
+  clientTokenId: ClientTokenId,
+  upstreamId: Upstream['id'],
+  toolName: string,
+): Policy[] => {
+  const resolved = resolveProfileRules({
+    clientTokenId,
+    upstreamId,
+    toolName,
+    profiles: profiles(),
+    rules: profileRules(),
+    assignments: profileAssignments(),
+  });
+  return [
+    ...directPolicies(),
+    ...resolved.rules.map((rule) => ({
+      ...rule,
+      id: rule.id as unknown as PolicyId,
+      clientTokenId,
+      toolName,
+    })),
+  ];
+};
 const grants = () =>
   stateStore.read((state) =>
     Object.values(state.grants).map((value) => value as unknown as Grant),
@@ -75,7 +118,7 @@ const approvals = new ApprovalOrchestrator(
       context: input.context,
       requestHash: input.requestHash,
       normalizationVersion: input.normalizationVersion,
-      policies: policies(),
+      policies: policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
       grants: [],
       now: new Date().toISOString(),
     }).reasonCode === 'policy.explicit_deny',
@@ -88,7 +131,8 @@ const approvals = new ApprovalOrchestrator(
 await approvals.interruptAll('server.restarted');
 const tokens = new TokenService(new StateStoreTokenRepository(stateStore));
 const coordinator = new PolicyCallCoordinator({
-  policies,
+  policies: (input) =>
+    policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
   grants,
   approvals,
   upstream: upstreams,
@@ -125,20 +169,34 @@ const catalogFor = async (tokenId: ClientTokenId) => {
       }
     }
   }
-  const visible = new Set(
-    policies()
-      .filter(
-        (policy) => policy.enabled && policy.clientTokenId === tokenId,
-      )
-      .flatMap((policy) => {
-        const upstream = configuredUpstreams().find(
-          (candidate) => candidate.id === policy.upstreamId,
-        );
-        return upstream === undefined
-          ? []
-          : [`${upstream.alias}__${policy.toolName}`];
-      }),
-  );
+  const visible = new Set<string>();
+  for (const source of sourceTools) {
+    const resolved = resolveProfileRules({
+      clientTokenId: tokenId,
+      upstreamId: source.upstreamId,
+      toolName: source.tool.name,
+      profiles: profiles(),
+      rules: profileRules(),
+      assignments: profileAssignments(),
+    });
+    const matchingDirect = directPolicies().filter(
+      (policy) =>
+        policy.enabled &&
+        policy.clientTokenId === tokenId &&
+        policy.upstreamId === source.upstreamId &&
+        policy.toolName === source.tool.name,
+    );
+    const outcomes = [
+      ...(resolved.outcome === 'unconfigured' ? [] : [resolved.outcome]),
+      ...matchingDirect.map((policy) => policy.outcome),
+    ];
+    if (
+      outcomes.length > 0 &&
+      !outcomes.includes('deny')
+    ) {
+      visible.add(`${source.upstreamAlias}__${source.tool.name}`);
+    }
+  }
   return buildTokenCatalog(
     tokenId,
     sourceTools,
