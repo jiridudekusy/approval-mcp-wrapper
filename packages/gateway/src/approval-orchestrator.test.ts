@@ -39,6 +39,26 @@ async function pendingId(repository: InMemoryApprovalRepository): Promise<Approv
 }
 
 describe('ApprovalOrchestrator', () => {
+  it('notifies listeners immediately after persisting a pending approval', async () => {
+    const repository = new InMemoryApprovalRepository();
+    const statuses: string[] = [];
+    const controller = new AbortController();
+    const orchestrator = new ApprovalOrchestrator(
+      repository,
+      () => new Date(),
+      () => false,
+      (approval) => statuses.push(approval.status),
+    );
+
+    const waiting = orchestrator.request(input(), controller.signal);
+    await pendingId(repository);
+
+    expect(statuses).toEqual(['pending']);
+    controller.abort();
+    await waiting;
+    expect(statuses).toEqual(['pending', 'abandoned']);
+  });
+
   it('transitions pending to approved and creates a one-time grant', async () => {
     const repository = new InMemoryApprovalRepository();
     const orchestrator = new ApprovalOrchestrator(repository);

@@ -69,10 +69,6 @@ export async function registerApprovalRoutes(
       session.adminId as AdminId,
       body.requestHash,
     );
-    options.broker.publish({
-      approvalId: approval.id,
-      status: approval.status,
-    });
     return approval;
   });
 

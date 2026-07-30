@@ -26,7 +26,10 @@ import {
   UpstreamRegistry,
 } from '@approval-mcp/upstream';
 import { join } from 'node:path';
-import { registerAdminRoutes } from './admin/index.js';
+import {
+  ApprovalEventBroker,
+  registerAdminRoutes,
+} from './admin/index.js';
 import fastifyStatic from '@fastify/static';
 import type {
   ClientTokenId,
@@ -59,6 +62,7 @@ const grants = () =>
   stateStore.read((state) =>
     Object.values(state.grants).map((value) => value as unknown as Grant),
   );
+const approvalBroker = new ApprovalEventBroker();
 const approvals = new ApprovalOrchestrator(
   new StateStoreApprovalRepository(stateStore),
   () => new Date(),
@@ -75,6 +79,11 @@ const approvals = new ApprovalOrchestrator(
       grants: [],
       now: new Date().toISOString(),
     }).reasonCode === 'policy.explicit_deny',
+  (approval) =>
+    approvalBroker.publish({
+      approvalId: approval.id,
+      status: approval.status,
+    }),
 );
 await approvals.interruptAll('server.restarted');
 const tokens = new TokenService(new StateStoreTokenRepository(stateStore));
@@ -171,6 +180,7 @@ await registerAdminRoutes(app, {
   tokens,
   credentialVault,
   approvals,
+  broker: approvalBroker,
   journal,
   onUpstreamsChanged: async () =>
     upstreams.replaceUpstreams(configuredUpstreams()),

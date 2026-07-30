@@ -112,15 +112,18 @@ export class ApprovalOrchestrator {
   readonly #pending = new Map<ApprovalId, PendingWaiter>();
   readonly #now: () => Date;
   readonly #isExplicitlyDenied: (input: ApprovalRequestInput) => boolean;
+  readonly #onChanged: (approval: Approval) => void;
 
   constructor(
     repository: ApprovalRepository,
     now: () => Date = () => new Date(),
     isExplicitlyDenied: (input: ApprovalRequestInput) => boolean = () => false,
+    onChanged: (approval: Approval) => void = () => undefined,
   ) {
     this.#repository = repository;
     this.#now = now;
     this.#isExplicitlyDenied = isExplicitlyDenied;
+    this.#onChanged = onChanged;
   }
 
   async request(
@@ -143,6 +146,7 @@ export class ApprovalOrchestrator {
       version: 1,
     };
     await this.#repository.create({ approval, request: structuredClone(input) });
+    this.#onChanged(structuredClone(approval));
 
     return new Promise<ApprovalOutcome>((resolve) => {
       const onAbort = () => {
@@ -230,6 +234,7 @@ export class ApprovalOrchestrator {
         },
       };
     });
+    this.#onChanged(structuredClone(record.approval));
     this.#resolve(record);
     return structuredClone(record.approval);
   }
@@ -287,6 +292,7 @@ export class ApprovalOrchestrator {
       const record = await this.#repository.transition(id, (current) =>
         terminalApproval(current, status, reasonCode, now),
       );
+      this.#onChanged(structuredClone(record.approval));
       this.#resolve(record);
     } catch (error) {
       if (!(error instanceof ApprovalConflictError)) throw error;
