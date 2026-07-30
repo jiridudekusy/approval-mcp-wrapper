@@ -115,6 +115,123 @@ describe('admin API', () => {
     ]);
   });
 
+  it('lists reusable active grants with display names and revokes them', async () => {
+    const { app, authHeaders, store } = await fixture();
+    const now = '2026-07-30T08:28:22.098Z';
+    const activeGrant = {
+      id: 'grant-hour',
+      clientTokenId: 'token-1',
+      upstreamId: 'upstream-1',
+      toolName: 'get_conversations',
+      predicates: [{ path: '/groupId', operator: 'exists' }],
+      expiresAt: '2099-07-30T09:28:22.098Z',
+      normalizationVersion: 1,
+      approvedBy: 'admin',
+      schemaVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    await store.mutate({
+      type: 'records.batch',
+      operations: [
+        {
+          type: 'record.upserted',
+          collection: 'clientTokens',
+          id: 'token-1',
+          value: {
+            id: 'token-1',
+            label: 'Claude Code',
+            verifier: 'not-returned',
+            schemaVersion: 1,
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+          },
+        },
+        {
+          type: 'record.upserted',
+          collection: 'upstreams',
+          id: 'upstream-1',
+          value: {
+            id: 'upstream-1',
+            alias: 'signal',
+            url: 'https://signal.example/mcp',
+            allowPrivateNetwork: false,
+            schemaVersion: 1,
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+          },
+        },
+        {
+          type: 'record.upserted',
+          collection: 'grants',
+          id: activeGrant.id,
+          value: activeGrant,
+        },
+        {
+          type: 'record.upserted',
+          collection: 'grants',
+          id: 'grant-expired',
+          value: {
+            ...activeGrant,
+            id: 'grant-expired',
+            expiresAt: '2020-01-01T00:00:00.000Z',
+          },
+        },
+        {
+          type: 'record.upserted',
+          collection: 'grants',
+          id: 'grant-once',
+          value: {
+            ...activeGrant,
+            id: 'grant-once',
+            callId: 'call-1',
+            requestHash: 'hash-1',
+          },
+        },
+      ],
+    });
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/admin/grants',
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toEqual([
+      expect.objectContaining({
+        id: 'grant-hour',
+        tokenLabel: 'Claude Code',
+        upstreamAlias: 'signal',
+        scope: 'until',
+        version: 1,
+      }),
+    ]);
+
+    const revoked = await app.inject({
+      method: 'DELETE',
+      url: '/api/admin/grants/grant-hour',
+      headers: authHeaders,
+      payload: { version: 1 },
+    });
+    expect(revoked.statusCode).toBe(204);
+    expect(
+      store.read((state) => state.grants['grant-hour']),
+    ).toEqual(expect.objectContaining({
+      revokedAt: expect.any(String),
+      version: 2,
+    }));
+
+    const afterRevoke = await app.inject({
+      method: 'GET',
+      url: '/api/admin/grants',
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(afterRevoke.json()).toEqual([]);
+  });
+
   it('discovers tools for one configured upstream', async () => {
     let discoveredId: string | undefined;
     const { app, authHeaders } = await fixture({

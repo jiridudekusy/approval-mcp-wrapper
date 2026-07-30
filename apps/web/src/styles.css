@@ -217,6 +217,26 @@ h1 { letter-spacing: -0.045em; }
 .secret-once code { overflow-wrap: anywhere; color: var(--mint); }
 .secret-once button { position: absolute; right: 10px; top: 10px; border: 0; background: none; }
 .section-title { margin-top: 48px; }
+.section-subtitle { color: var(--muted); margin-top: -8px; }
+.grant-list { display: grid; gap: 10px; margin-top: 20px; }
+.grant-list article {
+  display: grid; grid-template-columns: minmax(180px, .8fr) minmax(260px, 1.5fr) auto;
+  align-items: center; gap: 20px; border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; background: var(--panel);
+}
+.grant-main { display: grid; gap: 6px; }
+.grant-main code { color: var(--mint); overflow-wrap: anywhere; }
+.grant-main span { color: var(--muted); font-size: 11px; }
+.grant-list dl { display: grid; gap: 7px; margin: 0; }
+.grant-list dl div { display: grid; grid-template-columns: 70px 1fr; gap: 10px; }
+.grant-list dt { color: var(--muted); font-size: 10px; }
+.grant-list dd { margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+.grant-list dd code { color: var(--muted); }
+.grant-list button {
+  border: 1px solid var(--line); background: var(--panel-soft); border-radius: 8px;
+  padding: 8px 11px; cursor: pointer; color: #ffaaa2;
+}
+.grant-list button:disabled { opacity: .45; cursor: not-allowed; }
 .selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .policy-list { display: grid; gap: 7px; }
 .policy-list article { display: flex; justify-content: space-between; border: 1px solid var(--line); border-radius: 9px; padding: 12px; }
@@ -281,6 +301,8 @@ h1 { letter-spacing: -0.045em; }
   .scope-form code { grid-column: 1; }
   .decision-actions { grid-template-columns: 1fr; }
   .admin-form, .inline-form, .policy-form, .selectors { grid-template-columns: 1fr; }
+  .grant-list article { grid-template-columns: 1fr; }
+  .grant-list button { justify-self: start; }
   .upstream-edit-form, .delete-confirmation { grid-template-columns: 1fr; }
   .admin-form .check-row, .warning { grid-column: 1; }
   .page-header .compact { margin-left: 10px; }

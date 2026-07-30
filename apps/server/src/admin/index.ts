@@ -10,6 +10,7 @@ import type { SessionService } from '../session-store.js';
 import { registerTokenRoutes } from './token-routes.js';
 import { registerApprovalRoutes } from './approval-routes.js';
 import { registerHistoryRoutes } from './history-routes.js';
+import { registerGrantRoutes } from './grant-routes.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { registerSystemRoutes } from './system-routes.js';
 import { registerUpstreamRoutes } from './upstream-routes.js';
@@ -34,6 +35,7 @@ export async function registerAdminRoutes(
   await registerTokenRoutes(app, options);
   await registerUpstreamRoutes(app, options);
   await registerPolicyRoutes(app, options);
+  await registerGrantRoutes(app, options);
   await registerApprovalRoutes(app, {
     ...options,
     broker: options.broker ?? new ApprovalEventBroker(),
