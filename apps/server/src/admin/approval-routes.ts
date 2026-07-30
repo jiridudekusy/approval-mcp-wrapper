@@ -11,6 +11,23 @@ import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
 import type { ApprovalEventBroker } from './sse-broker.js';
 
+export function openSseResponse(response: {
+  writeHead(
+    statusCode: number,
+    headers: Record<string, string>,
+  ): unknown;
+  flushHeaders(): void;
+  write(chunk: string): unknown;
+}): void {
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-cache, no-transform',
+    connection: 'keep-alive',
+  });
+  response.flushHeaders();
+  response.write(': connected\n\n');
+}
+
 export async function registerApprovalRoutes(
   app: FastifyInstance,
   options: {
@@ -63,11 +80,7 @@ export async function registerApprovalRoutes(
     if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
     reply.hijack();
     const response = reply.raw;
-    response.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-    });
+    openSseResponse(response);
     const write = (event: { id: string; data: unknown }) => {
       response.write(`id: ${event.id}\ndata: ${JSON.stringify(event.data)}\n\n`);
     };
