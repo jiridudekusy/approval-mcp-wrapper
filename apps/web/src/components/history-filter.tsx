@@ -16,7 +16,7 @@ export function HistoryFilter({
   return (
     <div className="history-filter">
       <label>{t('history.search')}<input value={filters.toolName} onChange={(event) => onChange({ ...filters, toolName: event.target.value })} /></label>
-      <label>{t('history.status')}<select value={filters.finalStatus} onChange={(event) => onChange({ ...filters, finalStatus: event.target.value })}><option value="">{t('history.all')}</option><option value="success">success</option><option value="denied">denied</option><option value="error">error</option><option value="timeout">timeout</option><option value="abandoned">abandoned</option></select></label>
+      <label>{t('history.status')}<select value={filters.finalStatus} onChange={(event) => onChange({ ...filters, finalStatus: event.target.value })}><option value="">{t('history.all')}</option><option value="success">{t('history.completed')}</option><option value="denied">{t('history.denied')}</option><option value="error">{t('history.failed')}</option><option value="timeout">{t('history.timeout')}</option><option value="abandoned">{t('history.abandoned')}</option></select></label>
     </div>
   );
 }

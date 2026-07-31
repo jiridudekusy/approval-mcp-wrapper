@@ -13,6 +13,7 @@ import {
   type ManagedUpstream,
 } from '../components/upstream-management.js';
 import { useI18n } from '../i18n/i18n.js';
+import { Icon } from '../components/icon.js';
 
 interface UpstreamView extends ManagedUpstream {}
 
@@ -85,7 +86,7 @@ export function Upstreams({ csrfToken }: { csrfToken: string }) {
       {adding && <UpstreamForm csrfToken={csrfToken} onCreated={(upstream) => { setAdding(false); void refresh(); void discover(upstream.id); }} />}
       <div className="record-list">
         {items.length === 0 && <p>{t('upstreams.none')}</p>}
-        {items.map((item) => <article className="upstream-record" key={item.id}><span className="record-icon">⇄</span><div><h2>{item.alias}</h2><code>{item.url}</code></div><div className="record-badges">{item.allowPrivateNetwork && <span>PRIVATE</span>}{item.credentialsConfigured && <span>AUTH</span>}</div><div className="upstream-actions"><button type="button" onClick={() => setEditingId(item.id)}>{t('upstreams.edit')}</button><button className="danger-link" type="button" onClick={() => void prepareDelete(item)}>{t('upstreams.remove')}</button></div>{editingId === item.id && <UpstreamEditForm upstream={item} csrfToken={csrfToken} onCancel={() => setEditingId(undefined)} onSaved={() => { setEditingId(undefined); void refresh(); }} />}{deleting?.upstream.id === item.id && <UpstreamDeleteConfirmation alias={item.alias} impact={deleting.impact} busy={deleting.busy} error={deleting.error} onCancel={() => setDeleting(undefined)} onConfirm={() => void confirmDelete()} />}<ToolCatalogPanel tools={catalogs[item.id]?.tools} loading={loading[item.id] === true} error={errors[item.id]} onDiscover={() => void discover(item.id)} /></article>)}
+        {items.map((item) => <article className="upstream-record" key={item.id}><span className="record-icon"><Icon name="database" /></span><div><h2>{item.alias}</h2><code>{item.url}</code></div><div className="record-badges">{item.allowPrivateNetwork && <span className="private-badge"><Icon name="alert" />{t('upstreams.privateBadge')}</span>}{item.credentialsConfigured && <span><Icon name="key" />{t('upstreams.authBadge')}</span>}</div><div className="upstream-actions"><button type="button" onClick={() => setEditingId(item.id)}>{t('upstreams.edit')}</button><button className="danger-link" type="button" onClick={() => void prepareDelete(item)}>{t('upstreams.remove')}</button></div>{editingId === item.id && <UpstreamEditForm upstream={item} csrfToken={csrfToken} onCancel={() => setEditingId(undefined)} onSaved={() => { setEditingId(undefined); void refresh(); }} />}{deleting?.upstream.id === item.id && <UpstreamDeleteConfirmation alias={item.alias} impact={deleting.impact} busy={deleting.busy} error={deleting.error} onCancel={() => setDeleting(undefined)} onConfirm={() => void confirmDelete()} />}<ToolCatalogPanel tools={catalogs[item.id]?.tools} loading={loading[item.id] === true} error={errors[item.id]} onDiscover={() => void discover(item.id)} /></article>)}
       </div>
     </section>
   );

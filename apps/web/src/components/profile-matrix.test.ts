@@ -3,9 +3,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { I18nProvider } from '../i18n/i18n.js';
-import { ProfileMatrix } from './profile-matrix.js';
+import { ProfileMatrix, updateVisibleSelection } from './profile-matrix.js';
 
 describe('profile tool matrix', () => {
+  it('removes only tools visible under the active filter', () => {
+    expect([...updateVisibleSelection(new Set(['visible', 'hidden']), ['visible'], false)]).toEqual(['hidden']);
+  });
   it('groups tools by MCP server and exposes server, tool, and bulk controls', () => {
     const html = renderToStaticMarkup(
       createElement(
@@ -40,7 +43,7 @@ describe('profile tool matrix', () => {
           ],
           busy: false,
           onSetRule: () => undefined,
-          onSetRules: () => undefined,
+          onSetRules: async () => undefined,
           onRemoveRule: () => undefined,
         }),
       ),
@@ -50,7 +53,10 @@ describe('profile tool matrix', () => {
     expect(html).toContain('All tools');
     expect(html).toContain('get_messages');
     expect(html).toContain('send_message');
-    expect(html).toContain('Bulk action');
+    expect(html).toContain('Select all visible tools');
     expect(html).toContain('Require approval');
+    expect(html).toContain('via server rule');
+    expect(html).toContain('OVERRIDE');
+    expect(html).toContain('aria-pressed="true"');
   });
 });

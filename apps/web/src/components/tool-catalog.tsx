@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n/i18n.js';
+import { Icon } from './icon.js';
 
 export interface ToolView {
   name: string;
@@ -36,7 +37,7 @@ export function ToolCatalogPanel({
           disabled={loading}
           onClick={onDiscover}
         >
-          {loading ? t('upstreams.discovering') : t('upstreams.discover')}
+          <Icon name="refresh" />{loading ? t('upstreams.discovering') : t('upstreams.discover')}
         </button>
       </div>
       {error !== undefined && (

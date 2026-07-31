@@ -13,7 +13,7 @@ interface CallSummary {
   upstreamId: string;
   toolName: string;
   policyOutcome?: string;
-  finalStatus?: string;
+  finalStatus?: 'abandoned' | 'denied' | 'error' | 'interrupted' | 'success' | 'timeout';
 }
 
 export function History() {
@@ -38,13 +38,23 @@ export function History() {
     const result = await api<{ items: CallSummary[]; nextCursor?: string }>(`/api/admin/history?${query}&cursor=${encodeURIComponent(cursor)}`);
     setItems((current) => [...current, ...result.items]); setCursor(result.nextCursor);
   }
+  const outcomeLabel = (outcome?: string) => outcome === 'allow' ? t('profiles.outcomeAllow') : outcome === 'deny' ? t('profiles.outcomeDeny') : outcome === 'require_approval' ? t('profiles.outcomeApproval') : '—';
+  const statusView = (status?: CallSummary['finalStatus']) => {
+    if (status === 'success') return { label: t('history.completed'), tone: 'completed' };
+    if (status === 'denied') return { label: t('history.denied'), tone: 'denied' };
+    if (status === 'error') return { label: t('history.failed'), tone: 'failed' };
+    if (status === 'timeout') return { label: t('history.timeout'), tone: 'failed' };
+    if (status === 'abandoned') return { label: t('history.abandoned'), tone: 'neutral' };
+    if (status === 'interrupted') return { label: t('history.interrupted'), tone: 'neutral' };
+    return { label: t('history.pending'), tone: 'pending' };
+  };
   return (
     <section className="page">
       <header className="page-header"><div><h1>{t('history.title')}</h1><p>{t('history.subtitle')}</p></div><div className="export-actions"><a href={`/api/admin/history/export?${query}&format=jsonl`}>{t('history.exportJsonl')}</a><a href={`/api/admin/history/export?${query}&format=csv`}>{t('history.exportCsv')}</a></div></header>
       <HistoryFilter filters={filters} onChange={setFilters} />
       <div className="history-table">
         {items.length === 0 && <p>{t('history.empty')}</p>}
-        {items.map((item) => <button key={item.callId} onClick={() => setSelected(item.callId)}><span className={`status-dot ${item.finalStatus ?? ''}`} /><div><strong>{item.toolName}</strong><small>{item.upstreamId} · {item.clientTokenId}</small></div><span className={`outcome ${item.policyOutcome ?? ''}`}>{item.policyOutcome}</span><time>{formatDate(item.lastSeenAt)}</time></button>)}
+        {items.map((item) => { const status = statusView(item.finalStatus); return <button key={item.callId} onClick={() => setSelected(item.callId)}><span className={`status-dot ${status.tone}`} /><div><strong>{item.toolName}</strong><small>{item.upstreamId} · {item.clientTokenId}</small></div><span className={`outcome ${item.policyOutcome ?? ''}`}>{outcomeLabel(item.policyOutcome)}</span><span className="history-status">{status.label}</span><time>{formatDate(item.lastSeenAt)}</time></button>; })}
       </div>
       {cursor && <button className="load-more" onClick={() => void more()}>{t('history.loadMore')}</button>}
       {selected && <CallTimeline callId={selected} onClose={() => setSelected(undefined)} />}

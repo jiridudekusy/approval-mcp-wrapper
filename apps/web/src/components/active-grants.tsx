@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useI18n } from '../i18n/i18n.js';
+import { Icon } from './icon.js';
 
 export interface GrantView {
   id: string;
@@ -24,8 +26,9 @@ export function ActiveGrants({
   onRevoke(grant: GrantView): void;
 }) {
   const { t, formatDate } = useI18n();
+  const [confirmingId, setConfirmingId] = useState<string>();
   if (grants.length === 0) {
-    return <p className="catalog-empty">{t('access.noActiveGrants')}</p>;
+    return <div className="empty-panel">{t('access.noActiveGrants')}</div>;
   }
   return (
     <div className="grant-list">
@@ -38,11 +41,7 @@ export function ActiveGrants({
           <dl>
             <div>
               <dt>{t('access.scope')}</dt>
-              <dd>
-                {grant.expiresAt === undefined
-                  ? t('access.forever')
-                  : `${t('access.validUntil')} ${formatDate(grant.expiresAt)}`}
-              </dd>
+              <dd>{grant.expiresAt === undefined ? <span className="grant-scope permanent"><Icon name="infinity" />{t('access.forever')}</span> : <span className="grant-scope expiring"><Icon name="clock" />{t('access.validUntil')} {formatDate(grant.expiresAt)}</span>}</dd>
             </div>
             {grant.predicates.length > 0 && (
               <div>
@@ -51,16 +50,7 @@ export function ActiveGrants({
               </div>
             )}
           </dl>
-          <button
-            className="danger-link"
-            type="button"
-            disabled={revokingId === grant.id}
-            onClick={() => onRevoke(grant)}
-          >
-            {revokingId === grant.id
-              ? t('access.revoking')
-              : t('access.revoke')}
-          </button>
+          {confirmingId === grant.id ? <div className="revoke-confirm"><button type="button" onClick={() => setConfirmingId(undefined)}>{t('common.cancel')}</button><button className="danger-button" type="button" disabled={revokingId === grant.id} onClick={() => onRevoke(grant)}>{revokingId === grant.id ? t('access.revoking') : t('access.revokeNow')}</button></div> : <button className="danger-link" type="button" disabled={revokingId === grant.id} onClick={() => setConfirmingId(grant.id)}>{t('access.revoke')}</button>}
         </article>
       ))}
     </div>

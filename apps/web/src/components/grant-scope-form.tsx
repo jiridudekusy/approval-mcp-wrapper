@@ -1,4 +1,5 @@
 import type { Predicate } from './types.js';
+import { useI18n } from '../i18n/i18n.js';
 
 export function GrantScopeForm({
   predicate,
@@ -7,10 +8,11 @@ export function GrantScopeForm({
   predicate: Predicate;
   onChange(predicate: Predicate): void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="scope-form">
       <label>
-        Context path
+        {t('approval.contextPath')}
         <input
           value={predicate.path}
           placeholder="/groupId"
@@ -20,7 +22,7 @@ export function GrantScopeForm({
         />
       </label>
       <label>
-        Operator
+        {t('approval.operator')}
         <select
           value={predicate.operator}
           onChange={(event) =>
@@ -38,7 +40,7 @@ export function GrantScopeForm({
       </label>
       {predicate.operator !== 'exists' && (
         <label>
-          Value
+          {t('approval.value')}
           <input
             value={String(predicate.value ?? '')}
             onChange={(event) =>

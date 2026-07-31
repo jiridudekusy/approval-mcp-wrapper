@@ -18,7 +18,7 @@ export function App() {
     return <Login onAuthenticated={setCsrfToken} />;
   }
   return (
-    <AppShell page={page} onNavigate={setPage}>
+    <AppShell page={page} csrfToken={csrfToken} onNavigate={setPage} onLogout={() => setCsrfToken(undefined)}>
       {page === 'inbox' ? (
         <Inbox csrfToken={csrfToken} />
       ) : page === 'upstreams' ? (

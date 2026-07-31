@@ -6,9 +6,11 @@ import { useI18n } from '../i18n/i18n.js';
 export function TokenForm({
   csrfToken,
   onCreated,
+  onCancel,
 }: {
   csrfToken: string;
   onCreated(plaintext: string): void;
+  onCancel?(): void;
 }) {
   const { t } = useI18n();
   const [label, setLabel] = useState('');
@@ -23,9 +25,11 @@ export function TokenForm({
     onCreated(result.plaintext);
   }
   return (
-    <form className="inline-form" onSubmit={(event) => void submit(event)}>
-      <label>{t('access.tokenLabel')}<input required value={label} onChange={(event) => setLabel(event.target.value)} /></label>
-      <button className="primary compact" type="submit">{t('access.newToken')}</button>
+    <form className="token-form" onSubmit={(event) => void submit(event)}>
+      <h2>{t('access.newToken')}</h2>
+      <label>{t('access.tokenLabel')}<input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} /></label>
+      <p>{t('access.tokenHint')}</p>
+      <div className="modal-actions">{onCancel && <button type="button" onClick={onCancel}>{t('common.cancel')}</button>}<button className="primary compact" type="submit" disabled={label.trim() === ''}>{t('access.createToken')}</button></div>
     </form>
   );
 }
