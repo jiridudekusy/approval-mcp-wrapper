@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { api } from '../api/client.js';
+import { api, clearClientAuthentication } from '../api/client.js';
 import { useI18n, type Locale } from '../i18n/i18n.js';
 import { useTheme } from '../theme/theme.js';
 import { Icon, type IconName } from './icon.js';
@@ -15,6 +15,20 @@ const nav: { page: Page; key: `nav.${Page}`; icon: IconName }[] = [
   { page: 'system', key: 'nav.system', icon: 'chip' },
 ];
 
+export async function logoutSession(
+  csrfToken: string,
+  onLogout: () => void,
+): Promise<void> {
+  try {
+    await api('/api/auth/logout', { method: 'POST' }, csrfToken);
+  } catch {
+    // Local logout must still complete when the session expired or the server is offline.
+  } finally {
+    clearClientAuthentication();
+    onLogout();
+  }
+}
+
 export function AppShell({ page, csrfToken, onNavigate, onLogout, children }: {
   page: Page;
   csrfToken: string;
@@ -24,10 +38,6 @@ export function AppShell({ page, csrfToken, onNavigate, onLogout, children }: {
 }) {
   const { t } = useI18n();
   const { theme, toggle } = useTheme();
-  const logout = async () => {
-    await api('/api/auth/logout', { method: 'POST' }, csrfToken);
-    onLogout();
-  };
   const navigation = nav.map((item) => <button type="button" key={item.page} className={page === item.page ? 'selected' : ''} aria-current={page === item.page ? 'page' : undefined} onClick={() => onNavigate(item.page)}><Icon name={item.icon} /><span>{t(item.key)}</span></button>);
   return <div className="shell">
     <aside className="sidebar">
@@ -35,7 +45,7 @@ export function AppShell({ page, csrfToken, onNavigate, onLogout, children }: {
       <nav aria-label={t('nav.primary')}>{navigation}</nav>
       <div className="sidebar-foot">
         <div className="preference-row"><LanguageSwitch /><button type="button" className="theme-toggle" onClick={toggle} aria-label={theme === 'dark' ? t('status.lightTheme') : t('status.darkTheme')}><Icon name={theme === 'dark' ? 'check-circle' : 'clock'} /><span>{theme === 'dark' ? t('status.darkTheme') : t('status.lightTheme')}</span></button></div>
-        <button className="logout-button" type="button" onClick={() => void logout()}><Icon name="log-out" />{t('common.logout')}</button>
+        <button className="logout-button" type="button" onClick={() => void logoutSession(csrfToken, onLogout)}><Icon name="log-out" />{t('common.logout')}</button>
         <span className="secure-line"><Icon name="lock-closed" />{t('status.secure')}</span>
       </div>
     </aside>

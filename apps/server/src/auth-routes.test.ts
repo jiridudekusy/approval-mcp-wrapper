@@ -64,9 +64,12 @@ describe('RecoveryService', () => {
 });
 
 describe('authentication routes', () => {
-  it('sets a hardened session cookie and enforces CSRF on logout', async () => {
-    const sessions = new SessionService(new InMemorySessionRepository());
-    const app = await buildServerApp({
+  function cookieHeaders(value: string | string[] | undefined): string[] {
+    return Array.isArray(value) ? value : value === undefined ? [] : [value];
+  }
+
+  async function authApp(sessions: SessionService) {
+    return buildServerApp({
       auth: {
         passkeys: {
           bootstrapOptions: async () => ({ challenge: 'challenge' }),
@@ -79,35 +82,121 @@ describe('authentication routes', () => {
         secureCookies: true,
       },
     });
+  }
 
+  async function authenticatedApp() {
+    const sessions = new SessionService(new InMemorySessionRepository());
+    const app = await authApp(sessions);
     const login = await app.inject({
       method: 'POST',
       url: '/api/auth/login/verify',
       payload: {},
     });
-    const cookie = login.headers['set-cookie'];
     const csrfToken = login.json<{ csrfToken: string }>().csrfToken;
+    return { app, login, csrfToken };
+  }
 
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('SameSite=Strict');
-    expect(cookie).toContain('Secure');
+  it('sets hardened session and readable CSRF cookies after login', async () => {
+    const { app, login, csrfToken } = await authenticatedApp();
+    const cookies = cookieHeaders(login.headers['set-cookie']);
+    const sessionCookie = cookies.find((cookie) => cookie.startsWith('amcp_admin='));
+    const csrfCookie = cookies.find((cookie) => cookie.startsWith('amcp_csrf='));
+
+    expect(sessionCookie).toContain('HttpOnly');
+    expect(sessionCookie).toContain('SameSite=Strict');
+    expect(sessionCookie).toContain('Secure');
+    expect(csrfCookie).toContain(`amcp_csrf=${csrfToken}`);
+    expect(csrfCookie).toContain('SameSite=Strict');
+    expect(csrfCookie).toContain('Secure');
+    expect(csrfCookie).not.toContain('HttpOnly');
+    await app.close();
+  });
+
+  it('enforces CSRF and expires both authentication cookies on logout', async () => {
+    const { app, login, csrfToken } = await authenticatedApp();
+    const cookies = cookieHeaders(login.headers['set-cookie']);
+    const cookie = cookies.map((value) => value.split(';')[0]).join('; ');
     expect(
       await app.inject({
         method: 'POST',
         url: '/api/auth/logout',
-        headers: { cookie: cookie ?? '' },
+        headers: { cookie },
       }),
     ).toHaveProperty('statusCode', 403);
+    const logout = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout',
+      headers: { cookie, 'x-csrf-token': csrfToken },
+    });
+    expect(logout.statusCode).toBe(200);
+    const cleared = cookieHeaders(logout.headers['set-cookie']);
+    expect(cleared).toContainEqual(expect.stringMatching(/^amcp_admin=.*Max-Age=0/));
+    expect(cleared).toContainEqual(expect.stringMatching(/^amcp_csrf=.*Max-Age=0/));
+    await app.close();
+  });
+
+  it('validates an active browser session without caching the response', async () => {
+    const { app, login } = await authenticatedApp();
+    const cookie = cookieHeaders(login.headers['set-cookie'])
+      .map((value) => value.split(';')[0])
+      .join('; ');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ authenticated: true });
+    expect(response.headers['cache-control']).toBe('no-store');
+    await app.close();
+  });
+
+  it('rejects a missing browser session', async () => {
+    const sessions = new SessionService(new InMemorySessionRepository());
+    const app = await authApp(sessions);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/auth/session',
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({
+      error: { code: 'auth.unauthorized' },
+    });
+    await app.close();
+  });
+
+  it('rejects expired and revoked browser sessions', async () => {
+    let now = new Date('2026-08-01T00:00:00.000Z');
+    const sessions = new SessionService(
+      new InMemorySessionRepository(),
+      () => now,
+      1_000,
+    );
+    const app = await authApp(sessions);
+    const expired = await sessions.create('admin');
+    now = new Date('2026-08-01T00:00:01.001Z');
+
     expect(
       await app.inject({
-        method: 'POST',
-        url: '/api/auth/logout',
-        headers: {
-          cookie: cookie ?? '',
-          'x-csrf-token': csrfToken,
-        },
+        method: 'GET',
+        url: '/api/auth/session',
+        headers: { cookie: `amcp_admin=${expired.plaintext}` },
       }),
-    ).toHaveProperty('statusCode', 200);
+    ).toHaveProperty('statusCode', 401);
+
+    const revoked = await sessions.create('admin');
+    await sessions.revoke(revoked.id);
+    expect(
+      await app.inject({
+        method: 'GET',
+        url: '/api/auth/session',
+        headers: { cookie: `amcp_admin=${revoked.plaintext}` },
+      }),
+    ).toHaveProperty('statusCode', 401);
     await app.close();
   });
 });

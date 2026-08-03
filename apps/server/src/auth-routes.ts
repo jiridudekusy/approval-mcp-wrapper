@@ -42,22 +42,29 @@ function cookieValue(request: FastifyRequest, name: string): string | undefined 
   return undefined;
 }
 
-function setSessionCookie(
+function cookieAttributes(secure: boolean, httpOnly: boolean): string {
+  return [
+    'Path=/',
+    httpOnly ? 'HttpOnly' : undefined,
+    'SameSite=Strict',
+    secure ? 'Secure' : undefined,
+  ]
+    .filter((part) => part !== undefined)
+    .join('; ');
+}
+
+function setSessionCookies(
   reply: FastifyReply,
   plaintext: string,
+  csrfToken: string,
   secure: boolean,
 ): void {
   reply.header(
     'set-cookie',
     [
-      `amcp_admin=${plaintext}`,
-      'Path=/',
-      'HttpOnly',
-      'SameSite=Strict',
-      secure ? 'Secure' : undefined,
-    ]
-      .filter((part) => part !== undefined)
-      .join('; '),
+      `amcp_admin=${plaintext}; ${cookieAttributes(secure, true)}`,
+      `amcp_csrf=${csrfToken}; ${cookieAttributes(secure, false)}`,
+    ],
   );
 }
 
@@ -88,7 +95,12 @@ export async function registerAuthRoutes(
     );
     const session = await options.sessions.create(credential.adminId);
     const recoveryCodes = await options.recovery.generate();
-    setSessionCookie(reply, session.plaintext, options.secureCookies);
+    setSessionCookies(
+      reply,
+      session.plaintext,
+      session.csrfToken,
+      options.secureCookies,
+    );
     await audit(options, {
       type: 'auth.bootstrap_completed',
       adminId: credential.adminId,
@@ -100,12 +112,37 @@ export async function registerAuthRoutes(
     options.passkeys.loginOptions(),
   );
 
+  app.get('/api/auth/session', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const plaintext = cookieValue(request, 'amcp_admin');
+    const session =
+      plaintext === undefined
+        ? undefined
+        : await options.sessions.authenticate(plaintext);
+    if (session === undefined) {
+      reply.code(401);
+      return {
+        error: {
+          code: 'auth.unauthorized',
+          message: 'Authentication is required',
+          requestId: request.id,
+        },
+      };
+    }
+    return { authenticated: true };
+  });
+
   app.post('/api/auth/login/verify', async (request, reply) => {
     const credential = await options.passkeys.verifyLogin(
       request.body as AuthenticationResponseJSON,
     );
     const session = await options.sessions.create(credential.adminId);
-    setSessionCookie(reply, session.plaintext, options.secureCookies);
+    setSessionCookies(
+      reply,
+      session.plaintext,
+      session.csrfToken,
+      options.secureCookies,
+    );
     await audit(options, {
       type: 'auth.login_succeeded',
       adminId: credential.adminId,
@@ -132,7 +169,12 @@ export async function registerAuthRoutes(
     }
     await options.sessions.repository.revokeAll();
     const session = await options.sessions.create('admin');
-    setSessionCookie(reply, session.plaintext, options.secureCookies);
+    setSessionCookies(
+      reply,
+      session.plaintext,
+      session.csrfToken,
+      options.secureCookies,
+    );
     await audit(options, { type: 'auth.recovery_used', adminId: 'admin' });
     return {
       csrfToken: session.csrfToken,
@@ -154,7 +196,10 @@ export async function registerAuthRoutes(
     await options.sessions.revoke(session.id);
     reply.header(
       'set-cookie',
-      'amcp_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0',
+      [
+        `amcp_admin=; ${cookieAttributes(options.secureCookies, true)}; Max-Age=0`,
+        `amcp_csrf=; ${cookieAttributes(options.secureCookies, false)}; Max-Age=0`,
+      ],
     );
     await audit(options, { type: 'auth.logout', adminId: session.adminId });
     return { ok: true };

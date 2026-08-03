@@ -8,6 +8,15 @@ export class ApiError extends Error {
   }
 }
 
+export const AUTHENTICATION_LOST_EVENT = 'approval-mcp:unauthorized';
+
+export function clearClientAuthentication(): void {
+  if (globalThis.document === undefined) return;
+  const secure = globalThis.location?.protocol === 'https:' ? '; Secure' : '';
+  globalThis.document.cookie =
+    `amcp_csrf=; Path=/; SameSite=Strict; Max-Age=0${secure}`;
+}
+
 export async function api<T>(
   path: string,
   init?: RequestInit,
@@ -22,6 +31,9 @@ export async function api<T>(
     credentials: 'same-origin',
   });
   if (!response.ok) {
+    if (response.status === 401 && path.startsWith('/api/admin/')) {
+      globalThis.dispatchEvent?.(new Event(AUTHENTICATION_LOST_EVENT));
+    }
     const body = (await response.json().catch(() => undefined)) as
       | { error?: { code?: string } }
       | undefined;
@@ -33,4 +45,17 @@ export async function api<T>(
   return response.status === 204
     ? (undefined as T)
     : ((await response.json()) as T);
+}
+
+export async function validateSession(): Promise<'anonymous' | 'authenticated'> {
+  try {
+    await api<{ authenticated: true }>('/api/auth/session');
+    return 'authenticated';
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      clearClientAuthentication();
+      return 'anonymous';
+    }
+    return 'authenticated';
+  }
 }

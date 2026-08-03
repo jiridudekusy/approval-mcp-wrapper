@@ -21,6 +21,10 @@ export function useApprovalEvents() {
     );
   }, []);
 
+  const refreshSafely = useCallback(() => {
+    void refresh().catch(() => undefined);
+  }, [refresh]);
+
   useEffect(() => {
     let closed = false;
     let source: EventSource | undefined;
@@ -35,11 +39,11 @@ export function useApprovalEvents() {
       source.onopen = () => {
         retry = 1_000;
         setConnected(true);
-        void refresh();
+        refreshSafely();
       };
       source.onmessage = (event) => {
         lastEventId.current = event.lastEventId;
-        void refresh();
+        refreshSafely();
       };
       source.onerror = () => {
         setConnected(false);
@@ -50,14 +54,14 @@ export function useApprovalEvents() {
         }
       };
     };
-    void refresh();
+    refreshSafely();
     connect();
     return () => {
       closed = true;
       if (timer !== undefined) clearTimeout(timer);
       source?.close();
     };
-  }, [refresh]);
+  }, [refreshSafely]);
 
   return { approvals, connected, refresh };
 }
