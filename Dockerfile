@@ -1,4 +1,4 @@
-FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS build
+FROM node:26.5.1-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73 AS build
 
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json vitest.config.ts ./
@@ -9,7 +9,7 @@ RUN npm ci --ignore-scripts \
   && npm run build \
   && npm prune --omit=dev
 
-FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+FROM node:26.5.1-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
