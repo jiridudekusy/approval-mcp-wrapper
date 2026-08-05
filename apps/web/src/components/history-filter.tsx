@@ -1,4 +1,5 @@
 import { useI18n } from '../i18n/i18n.js';
+import { Icon } from './icon.js';
 
 export interface HistoryFilters {
   toolName: string;
@@ -15,8 +16,29 @@ export function HistoryFilter({
   const { t } = useI18n();
   return (
     <div className="history-filter">
-      <label>{t('history.search')}<input value={filters.toolName} onChange={(event) => onChange({ ...filters, toolName: event.target.value })} /></label>
-      <label>{t('history.status')}<select value={filters.finalStatus} onChange={(event) => onChange({ ...filters, finalStatus: event.target.value })}><option value="">{t('history.all')}</option><option value="success">{t('history.completed')}</option><option value="denied">{t('history.denied')}</option><option value="error">{t('history.failed')}</option><option value="timeout">{t('history.timeout')}</option><option value="abandoned">{t('history.abandoned')}</option></select></label>
+      <label className="filter-field filter-search">
+        <span>{t('history.search')}</span>
+        <span className="filter-control">
+          <Icon name="search" />
+          <input
+            type="search"
+            placeholder={t('history.searchPlaceholder')}
+            value={filters.toolName}
+            onChange={(event) => onChange({ ...filters, toolName: event.target.value })}
+          />
+        </span>
+      </label>
+      <label className="filter-field">
+        <span>{t('history.status')}</span>
+        <select value={filters.finalStatus} onChange={(event) => onChange({ ...filters, finalStatus: event.target.value })}>
+          <option value="">{t('history.all')}</option>
+          <option value="success">{t('history.completed')}</option>
+          <option value="denied">{t('history.denied')}</option>
+          <option value="error">{t('history.failed')}</option>
+          <option value="timeout">{t('history.timeout')}</option>
+          <option value="abandoned">{t('history.abandoned')}</option>
+        </select>
+      </label>
     </div>
   );
 }

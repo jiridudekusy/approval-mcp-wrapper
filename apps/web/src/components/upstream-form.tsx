@@ -6,9 +6,11 @@ import { useI18n } from '../i18n/i18n.js';
 export function UpstreamForm({
   csrfToken,
   onCreated,
+  onCancel,
 }: {
   csrfToken: string;
   onCreated(upstream: { id: string }): void;
+  onCancel(): void;
 }) {
   const { t } = useI18n();
   const [alias, setAlias] = useState('');
@@ -38,12 +40,37 @@ export function UpstreamForm({
 
   return (
     <form className="admin-form" onSubmit={(event) => void submit(event)}>
-      <label>{t('upstreams.alias')}<input required pattern="[a-z0-9_-]+" value={alias} onChange={(event) => setAlias(event.target.value)} /></label>
-      <label>{t('upstreams.url')}<input required type="url" value={url} onChange={(event) => setUrl(event.target.value)} /></label>
-      <label>{t('upstreams.credentials')}<input type="password" autoComplete="off" value={authorization} onChange={(event) => setAuthorization(event.target.value)} /></label>
-      <label className="check-row"><input type="checkbox" checked={privateNetwork} onChange={(event) => setPrivateNetwork(event.target.checked)} />{t('upstreams.private')}</label>
-      {privateNetwork && <p className="warning">{t('upstreams.privateWarning')}</p>}
-      <button className="primary" type="submit">{t('common.add')}</button>
+      <div className="form-heading">
+        <div>
+          <h2>{t('upstreams.addTitle')}</h2>
+          <p>{t('upstreams.addDetail')}</p>
+        </div>
+      </div>
+      <div className="form-grid">
+        <label className="field">
+          <span>{t('upstreams.alias')}</span>
+          <input required pattern="[a-z0-9_-]+" value={alias} onChange={(event) => setAlias(event.target.value)} />
+        </label>
+        <label className="field">
+          <span>{t('upstreams.url')}</span>
+          <input required type="url" placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => setUrl(event.target.value)} />
+        </label>
+        <label className="field field-wide">
+          <span>{t('upstreams.credentials')}</span>
+          <input type="password" autoComplete="off" value={authorization} onChange={(event) => setAuthorization(event.target.value)} />
+        </label>
+      </div>
+      <div className="form-options">
+        <label className="check-row">
+          <input type="checkbox" checked={privateNetwork} onChange={(event) => setPrivateNetwork(event.target.checked)} />
+          <span><strong>{t('upstreams.private')}</strong><small>{t('upstreams.privateHint')}</small></span>
+        </label>
+        {privateNetwork && <p className="warning" role="note">{t('upstreams.privateWarning')}</p>}
+      </div>
+      <div className="form-actions">
+        <button className="secondary-button" type="button" onClick={onCancel}>{t('common.cancel')}</button>
+        <button className="primary" type="submit">{t('common.add')}</button>
+      </div>
     </form>
   );
 }

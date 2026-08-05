@@ -74,7 +74,13 @@ export function Login({ onAuthenticated }: { onAuthenticated(csrf: string): void
     <main className="login-page">
       <header className="login-header">
         <div className="brand"><span className="brand-mark"><Icon name="shield-check" size={20} /></span><div><strong>{t('app.name')}</strong><small>{t('app.controlPlane')}</small></div></div>
-        <div className="login-preferences"><LanguageSwitch /><button className="theme-toggle" type="button" onClick={toggle}>{theme === 'dark' ? t('status.darkTheme') : t('status.lightTheme')}</button></div>
+        <div className="login-preferences">
+          <LanguageSwitch />
+          <button className="theme-toggle" type="button" onClick={toggle}>
+            <Icon name={theme === 'dark' ? 'moon' : 'sun'} />
+            <span>{theme === 'dark' ? t('status.darkTheme') : t('status.lightTheme')}</span>
+          </button>
+        </div>
       </header>
       <section className="login-panel">
         <div className="login-copy">

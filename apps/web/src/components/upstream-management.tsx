@@ -76,55 +76,62 @@ export function UpstreamEditForm({
       className="upstream-edit-form"
       onSubmit={(event) => void submit(event)}
     >
-      <label>
-        {t('upstreams.alias')}
-        <input
-          required
-          pattern="[a-z0-9_-]+"
-          value={alias}
-          onChange={(event) => setAlias(event.target.value)}
-        />
-      </label>
-      <label>
-        {t('upstreams.url')}
-        <input
-          required
-          type="url"
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-        />
-      </label>
-      <label>
-        {t('upstreams.replaceCredential')}
-        <input
-          type="password"
-          autoComplete="off"
-          disabled={removeCredential}
-          value={authorization}
-          onChange={(event) => setAuthorization(event.target.value)}
-        />
-      </label>
-      <label className="check-row">
-        <input
-          type="checkbox"
-          checked={privateNetwork}
-          onChange={(event) => setPrivateNetwork(event.target.checked)}
-        />
-        {t('upstreams.private')}
-      </label>
-      {upstream.credentialsConfigured && (
+      <div className="form-heading">
+        <div><h3>{t('upstreams.editTitle')}</h3><p>{t('upstreams.editDetail')}</p></div>
+      </div>
+      <div className="form-grid">
+        <label className="field">
+          <span>{t('upstreams.alias')}</span>
+          <input
+            required
+            pattern="[a-z0-9_-]+"
+            value={alias}
+            onChange={(event) => setAlias(event.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>{t('upstreams.url')}</span>
+          <input
+            required
+            type="url"
+            value={url}
+            onChange={(event) => setUrl(event.target.value)}
+          />
+        </label>
+        <label className="field field-wide">
+          <span>{t('upstreams.replaceCredential')}</span>
+          <input
+            type="password"
+            autoComplete="off"
+            disabled={removeCredential}
+            value={authorization}
+            onChange={(event) => setAuthorization(event.target.value)}
+          />
+        </label>
+      </div>
+      <div className="form-options">
         <label className="check-row">
           <input
             type="checkbox"
-            checked={removeCredential}
-            onChange={(event) => setRemoveCredential(event.target.checked)}
+            checked={privateNetwork}
+            onChange={(event) => setPrivateNetwork(event.target.checked)}
           />
-          {t('upstreams.removeCredential')}
+          <span><strong>{t('upstreams.private')}</strong><small>{t('upstreams.privateHint')}</small></span>
         </label>
-      )}
+        {upstream.credentialsConfigured && (
+          <label className="check-row destructive-option">
+            <input
+              type="checkbox"
+              checked={removeCredential}
+              onChange={(event) => setRemoveCredential(event.target.checked)}
+            />
+            <span><strong>{t('upstreams.removeCredential')}</strong><small>{t('upstreams.removeCredentialHint')}</small></span>
+          </label>
+        )}
+      </div>
       {error && <p className="catalog-error">{t('upstreams.saveFailed')}</p>}
-      <div className="management-actions">
-        <button type="button" onClick={onCancel}>{t('common.cancel')}</button>
+      <div className="form-actions">
+        <button className="secondary-button" type="button" onClick={onCancel}>{t('common.cancel')}</button>
         <button className="primary compact" type="submit" disabled={busy}>
           {busy ? t('common.loading') : t('common.save')}
         </button>

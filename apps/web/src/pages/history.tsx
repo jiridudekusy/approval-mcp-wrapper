@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client.js';
 import { CallTimeline } from '../components/call-timeline.js';
 import { HistoryFilter, type HistoryFilters } from '../components/history-filter.js';
+import { Icon } from '../components/icon.js';
 import { useI18n } from '../i18n/i18n.js';
 
 interface CallSummary {
@@ -48,12 +49,25 @@ export function History() {
     if (status === 'interrupted') return { label: t('history.interrupted'), tone: 'neutral' };
     return { label: t('history.pending'), tone: 'pending' };
   };
+  const hasFilters = filters.toolName !== '' || filters.finalStatus !== '';
   return (
     <section className="page">
-      <header className="page-header"><div><h1>{t('history.title')}</h1><p>{t('history.subtitle')}</p></div><div className="export-actions"><a href={`/api/admin/history/export?${query}&format=jsonl`}>{t('history.exportJsonl')}</a><a href={`/api/admin/history/export?${query}&format=csv`}>{t('history.exportCsv')}</a></div></header>
+      <header className="page-header">
+        <div><h1>{t('history.title')}</h1><p>{t('history.subtitle')}</p></div>
+        <div className="export-actions">
+          <a href={`/api/admin/history/export?${query}&format=jsonl`}>{t('history.exportJsonl')}</a>
+          <a href={`/api/admin/history/export?${query}&format=csv`}>{t('history.exportCsv')}</a>
+        </div>
+      </header>
       <HistoryFilter filters={filters} onChange={setFilters} />
       <div className="history-table">
-        {items.length === 0 && <p>{t('history.empty')}</p>}
+        {items.length === 0 && (
+          <div className="history-empty">
+            <span className="empty-icon"><Icon name={hasFilters ? 'search' : 'arrow-history'} size={22} /></span>
+            <h2>{hasFilters ? t('history.empty') : t('history.emptyDefault')}</h2>
+            <p>{hasFilters ? t('history.emptyFilteredDetail') : t('history.emptyDefaultDetail')}</p>
+          </div>
+        )}
         {items.map((item) => { const status = statusView(item.finalStatus); return <button key={item.callId} onClick={() => setSelected(item.callId)}><span className={`status-dot ${status.tone}`} /><div><strong>{item.toolName}</strong><small>{item.upstreamId} · {item.clientTokenId}</small></div><span className={`outcome ${item.policyOutcome ?? ''}`}>{outcomeLabel(item.policyOutcome)}</span><span className="history-status">{status.label}</span><time>{formatDate(item.lastSeenAt)}</time></button>; })}
       </div>
       {cursor && <button className="load-more" onClick={() => void more()}>{t('history.loadMore')}</button>}

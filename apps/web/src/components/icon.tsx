@@ -3,8 +3,8 @@ export type IconName =
   | 'check-circle' | 'chevron-down' | 'chevron-right' | 'chip' | 'clock'
   | 'close' | 'close-circle' | 'copy' | 'database' | 'delete' | 'eye'
   | 'filter' | 'fingerprint' | 'inbox' | 'infinity' | 'info' | 'key' | 'lock-closed'
-  | 'log-out' | 'pending' | 'plus-circle' | 'refresh' | 'search' | 'settings'
-  | 'shield-account' | 'shield-check' | 'sync';
+  | 'log-out' | 'moon' | 'pending' | 'plus-circle' | 'refresh' | 'search' | 'settings'
+  | 'shield-account' | 'shield-check' | 'sun' | 'sync';
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return <span aria-hidden="true" className="icon" style={{
