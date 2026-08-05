@@ -1,4 +1,6 @@
 .worktrees/
+.DS_Store
+/apps.zip
 node_modules/
 dist/
 dist-types/
