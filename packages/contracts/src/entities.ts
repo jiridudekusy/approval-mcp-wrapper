@@ -67,10 +67,19 @@ export interface Policy extends VersionedRecord {
   enabled: boolean;
 }
 
+export const DEFAULT_TOOL_CALL_TIMEOUT_SECONDS = 60;
+export const MIN_TOOL_CALL_TIMEOUT_SECONDS = 1;
+export const MAX_TOOL_CALL_TIMEOUT_SECONDS = 24 * 60 * 60;
+export const DEFAULT_APPROVAL_TIMEOUT_SECONDS = 60;
+export const MIN_APPROVAL_TIMEOUT_SECONDS = 1;
+export const MAX_APPROVAL_TIMEOUT_SECONDS = 24 * 60 * 60;
+
 export interface Profile extends VersionedRecord {
   id: ProfileId;
   name: string;
   isDefault: boolean;
+  approvalTimeoutSeconds: number;
+  toolCallTimeoutSeconds: number;
 }
 
 export interface ProfileRule extends VersionedRecord {

@@ -1,4 +1,6 @@
 export interface ApprovalApiRecord {
+  tokenLabel?: string;
+  upstreamAlias?: string;
   approval: {
     id: string;
     callId: string;
@@ -18,8 +20,8 @@ export interface ApprovalApiRecord {
 export interface ApprovalViewModel {
   id: string;
   requestHash: string;
-  tokenId: string;
-  upstreamId: string;
+  agentName?: string;
+  upstreamName?: string;
   toolName: string;
   arguments: unknown;
   createdAt: string;
@@ -33,8 +35,12 @@ export function approvalViewModel(
   return {
     id: record.approval.id,
     requestHash: record.approval.requestHash,
-    tokenId: record.request.clientTokenId,
-    upstreamId: record.request.upstreamId,
+    ...(record.tokenLabel === undefined
+      ? {}
+      : { agentName: record.tokenLabel }),
+    ...(record.upstreamAlias === undefined
+      ? {}
+      : { upstreamName: record.upstreamAlias }),
     toolName: record.request.toolName,
     arguments: record.request.context,
     createdAt: record.approval.createdAt,

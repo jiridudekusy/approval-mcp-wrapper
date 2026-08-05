@@ -37,11 +37,10 @@ export async function registerGrantRoutes(
             id: grant.id,
             clientTokenId: grant.clientTokenId,
             tokenLabel:
-              (token as ClientTokenRecord | undefined)?.label ??
-              grant.clientTokenId,
+              (token as ClientTokenRecord | undefined)?.label,
             upstreamId: grant.upstreamId,
             upstreamAlias:
-              (upstream as Upstream | undefined)?.alias ?? grant.upstreamId,
+              (upstream as Upstream | undefined)?.alias,
             toolName: grant.toolName,
             predicates: grant.predicates,
             scope: grant.expiresAt === undefined ? 'forever' : 'until',

@@ -6,6 +6,7 @@ import { gunzip, gzip } from 'node:zlib';
 
 import type {
   CallEvent,
+  CallDisplayNameResolver,
   CallFilter,
   CallPage,
   CallSummary,
@@ -22,7 +23,11 @@ export interface CallJournal {
   compressClosedSegments(now: Date): Promise<string[]>;
   query(filter: CallFilter, cursor?: string): Promise<CallPage>;
   get(callId: string): Promise<CallTimeline | undefined>;
-  export(filter: CallFilter, format: 'jsonl' | 'csv'): AsyncIterable<Uint8Array>;
+  export(
+    filter: CallFilter,
+    format: 'jsonl' | 'csv',
+    displayNames?: CallDisplayNameResolver,
+  ): AsyncIterable<Uint8Array>;
   enforceRetention(now: Date, retentionDays: number): Promise<RetentionResult>;
 }
 
@@ -187,10 +192,22 @@ class FileCallJournal implements CallJournal {
   public async *export(
     filter: CallFilter,
     format: 'jsonl' | 'csv',
+    displayNames?: CallDisplayNameResolver,
   ): AsyncIterable<Uint8Array> {
     const encoder = new TextEncoder();
     if (format === 'csv') {
-      yield encoder.encode('callId,timestamp,type,clientTokenId,upstreamId,toolName\n');
+      const columns = [
+        'callId',
+        'timestamp',
+        'type',
+        'clientTokenId',
+        'upstreamId',
+        'toolName',
+        ...(displayNames === undefined
+          ? []
+          : ['tokenLabel', 'upstreamAlias']),
+      ];
+      yield encoder.encode(`${columns.join(',')}\n`);
     }
     for (const path of await this.segmentPaths()) {
       for (const event of await this.readEvents(path, false)) {
@@ -198,8 +215,12 @@ class FileCallJournal implements CallJournal {
           continue;
         }
         if (format === 'jsonl') {
-          yield encoder.encode(`${JSON.stringify(event)}\n`);
+          yield encoder.encode(`${JSON.stringify({
+            ...event,
+            ...displayNames?.(event),
+          })}\n`);
         } else {
+          const names = displayNames?.(event);
           const cells = [
             event.callId,
             event.timestamp,
@@ -207,6 +228,9 @@ class FileCallJournal implements CallJournal {
             event.clientTokenId,
             event.upstreamId,
             event.toolName,
+            ...(displayNames === undefined
+              ? []
+              : [names?.tokenLabel ?? '', names?.upstreamAlias ?? '']),
           ].map((cell) => `"${cell.replaceAll('"', '""')}"`);
           yield encoder.encode(`${cells.join(',')}\n`);
         }

@@ -7,7 +7,11 @@ import type {
 } from '@approval-mcp/contracts';
 import { describe, expect, it } from 'vitest';
 
-import { resolveProfileRules } from './profiles.js';
+import {
+  resolveApprovalTimeoutSeconds,
+  resolveProfileRules,
+  resolveToolCallTimeoutSeconds,
+} from './profiles.js';
 
 const tokenId = 'token-1' as ClientTokenId;
 const upstreamId = 'signal' as UpstreamId;
@@ -18,8 +22,20 @@ const versioned = {
   version: 1,
 };
 
-function profile(id: string, isDefault = false): Profile {
-  return { ...versioned, id, name: id, isDefault };
+function profile(
+  id: string,
+  isDefault = false,
+  toolCallTimeoutSeconds = 60,
+  approvalTimeoutSeconds = 60,
+): Profile {
+  return {
+    ...versioned,
+    id,
+    name: id,
+    isDefault,
+    approvalTimeoutSeconds,
+    toolCallTimeoutSeconds,
+  };
 }
 
 function rule(
@@ -135,5 +151,61 @@ describe('profile rule resolution', () => {
         ],
       }).outcome,
     ).toBe('deny');
+  });
+
+  it('uses the longest assigned profile timeout and falls back to the default profile', () => {
+    const profiles = [
+      profile('default', true, 90),
+      profile('quick', false, 30),
+      profile('long-running', false, 1_800),
+    ];
+
+    expect(
+      resolveToolCallTimeoutSeconds({
+        clientTokenId: tokenId,
+        profiles,
+        assignments: [],
+      }),
+    ).toBe(90);
+    expect(
+      resolveToolCallTimeoutSeconds({
+        clientTokenId: tokenId,
+        profiles,
+        assignments: [assignment('quick')],
+      }),
+    ).toBe(30);
+    expect(
+      resolveToolCallTimeoutSeconds({
+        clientTokenId: tokenId,
+        profiles,
+        assignments: [assignment('quick'), assignment('long-running')],
+      }),
+    ).toBe(1_800);
+  });
+
+  it('resolves the approval timeout independently from the tool timeout', () => {
+    const profiles = [
+      profile('default', true, 60, 120),
+      profile('quick-approval', false, 3_600, 30),
+      profile('patient-approval', false, 60, 900),
+    ];
+
+    expect(
+      resolveApprovalTimeoutSeconds({
+        clientTokenId: tokenId,
+        profiles,
+        assignments: [],
+      }),
+    ).toBe(120);
+    expect(
+      resolveApprovalTimeoutSeconds({
+        clientTokenId: tokenId,
+        profiles,
+        assignments: [
+          assignment('quick-approval'),
+          assignment('patient-approval'),
+        ],
+      }),
+    ).toBe(900);
   });
 });

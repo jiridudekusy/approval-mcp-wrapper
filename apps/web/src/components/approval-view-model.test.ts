@@ -5,6 +5,8 @@ import { approvalViewModel } from './approval-view-model.js';
 describe('approvalViewModel', () => {
   it('maps pending records and excludes terminal approvals', () => {
     const record = {
+      tokenLabel: 'Claude Code',
+      upstreamAlias: 'Signal',
       approval: {
         id: 'a1',
         callId: 'c1',
@@ -20,10 +22,15 @@ describe('approvalViewModel', () => {
         expiresAt: '2026-01-01T00:05:00.000Z',
       },
     };
-    expect(approvalViewModel(record)).toMatchObject({
+    const viewModel = approvalViewModel(record);
+    expect(viewModel).toMatchObject({
       id: 'a1',
+      agentName: 'Claude Code',
+      upstreamName: 'Signal',
       arguments: { authorization: '[REDACTED]' },
     });
+    expect(viewModel).not.toHaveProperty('tokenId');
+    expect(viewModel).not.toHaveProperty('upstreamId');
     expect(
       approvalViewModel({
         ...record,

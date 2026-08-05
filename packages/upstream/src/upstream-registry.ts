@@ -20,6 +20,8 @@ export interface UpstreamCall {
   upstreamId: UpstreamId;
   toolName: string;
   arguments?: Record<string, unknown>;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export type UpstreamHealth =
@@ -122,10 +124,16 @@ export class UpstreamRegistry extends EventEmitter {
     const connection =
       this.#connections.get(input.upstreamId) ??
       (await this.#connectAndReturn(input.upstreamId));
-    return connection.callTool({
-      name: input.toolName,
-      ...(input.arguments === undefined ? {} : { arguments: input.arguments }),
-    });
+    return connection.callTool(
+      {
+        name: input.toolName,
+        ...(input.arguments === undefined ? {} : { arguments: input.arguments }),
+      },
+      {
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+        ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+      },
+    );
   }
 
   health(upstreamId: UpstreamId): UpstreamHealth {

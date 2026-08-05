@@ -5,9 +5,9 @@ import { Icon } from './icon.js';
 export interface GrantView {
   id: string;
   clientTokenId: string;
-  tokenLabel: string;
+  tokenLabel?: string;
   upstreamId: string;
-  upstreamAlias: string;
+  upstreamAlias?: string;
   toolName: string;
   predicates: readonly unknown[];
   scope: 'forever' | 'until';
@@ -36,7 +36,7 @@ export function ActiveGrants({
         <article key={grant.id}>
           <div className="grant-main">
             <code>{grant.toolName}</code>
-            <span>{grant.tokenLabel} → {grant.upstreamAlias}</span>
+            <span>{grant.tokenLabel ?? t('common.unknownAgent')} → {grant.upstreamAlias ?? t('common.unknownUpstream')}</span>
           </div>
           <dl>
             <div>

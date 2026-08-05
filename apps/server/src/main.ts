@@ -41,7 +41,12 @@ import type {
   TokenProfileAssignment,
   Upstream,
 } from '@approval-mcp/contracts';
-import { evaluatePolicy, resolveProfileRules } from '@approval-mcp/policy';
+import {
+  evaluatePolicy,
+  resolveApprovalTimeoutSeconds,
+  resolveProfileRules,
+  resolveToolCallTimeoutSeconds,
+} from '@approval-mcp/policy';
 import { readiness } from './operations/health.js';
 import { startRetentionJob } from './operations/retention-job.js';
 
@@ -133,6 +138,18 @@ const tokens = new TokenService(new StateStoreTokenRepository(stateStore));
 const coordinator = new PolicyCallCoordinator({
   policies: (input) =>
     policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
+  approvalTimeoutMs: (input) =>
+    resolveApprovalTimeoutSeconds({
+      clientTokenId: input.clientTokenId,
+      profiles: profiles(),
+      assignments: profileAssignments(),
+    }) * 1_000,
+  toolCallTimeoutMs: (input) =>
+    resolveToolCallTimeoutSeconds({
+      clientTokenId: input.clientTokenId,
+      profiles: profiles(),
+      assignments: profileAssignments(),
+    }) * 1_000,
   grants,
   approvals,
   upstream: upstreams,

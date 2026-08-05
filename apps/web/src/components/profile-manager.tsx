@@ -7,7 +7,7 @@ import type { ToolCatalogView } from './tool-catalog.js';
 import { runProfileMutation } from './profile-manager-actions.js';
 import { ProfileMatrix, type ProfileRuleView, type RuleOutcome } from './profile-matrix.js';
 
-export interface ProfileView { id: string; name: string; isDefault: boolean; ruleCount: number; tokenCount: number; version: number }
+export interface ProfileView { id: string; name: string; isDefault: boolean; approvalTimeoutSeconds: number; toolCallTimeoutSeconds: number; ruleCount: number; tokenCount: number; version: number }
 export interface ProfileTokenView { id: string; label: string; profileIds: string[]; revokedAt?: string }
 
 export function effectiveOutcomeCounts(upstreams: readonly { id: string }[], catalogs: Readonly<Record<string, ToolCatalogView | undefined>>, rules: readonly ProfileRuleView[]) {
@@ -39,6 +39,8 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
   const [editingAgent, setEditingAgent] = useState<string>();
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
+  const [approvalTimeoutDraft, setApprovalTimeoutDraft] = useState('60');
+  const [timeoutDraft, setTimeoutDraft] = useState('60');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
   const [assignmentBusy, setAssignmentBusy] = useState<Set<string>>(new Set());
@@ -53,10 +55,12 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
     if (!selectedProfile) return;
     setSelectedId(selectedProfile.id);
     setRenameDraft(selectedProfile.name);
+    setApprovalTimeoutDraft(String(selectedProfile.approvalTimeoutSeconds));
+    setTimeoutDraft(String(selectedProfile.toolCallTimeoutSeconds));
     let active = true;
     void api<ProfileRuleView[]>(`/api/admin/profiles/${selectedProfile.id}/rules`).then((value) => { if (active) setRules(value); });
     return () => { active = false; };
-  }, [selectedProfile?.id]);
+  }, [selectedProfile?.id, selectedProfile?.name, selectedProfile?.approvalTimeoutSeconds, selectedProfile?.toolCallTimeoutSeconds]);
   useEffect(() => {
     let active = true;
     void Promise.all(upstreams.map(async (upstream) => {
@@ -102,6 +106,16 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
   </div>;
 
   const counts = effectiveOutcomeCounts(upstreams, catalogs, rules);
+  const approvalTimeoutSeconds = Number(approvalTimeoutDraft);
+  const approvalTimeoutValid = approvalTimeoutDraft.trim() !== '' &&
+    Number.isInteger(approvalTimeoutSeconds) &&
+    approvalTimeoutSeconds >= 1 &&
+    approvalTimeoutSeconds <= 86_400;
+  const timeoutSeconds = Number(timeoutDraft);
+  const timeoutValid = timeoutDraft.trim() !== '' &&
+    Number.isInteger(timeoutSeconds) &&
+    timeoutSeconds >= 1 &&
+    timeoutSeconds <= 86_400;
   return <div className="profile-editor-layout">
     <aside className="profile-rail">
       <div className="profile-list">{profiles.map((profile) => <button type="button" className={profile.id === selectedProfile?.id ? 'selected' : ''} key={profile.id} onClick={() => { setSelectedId(profile.id); setRenaming(false); setConfirmDelete(false); }}><span>{profile.name}{profile.isDefault && <small>{t('profiles.default')}</small>}</span><em>{profile.ruleCount} {t('profiles.rules')} · {profile.tokenCount} {t('profiles.agents')}</em></button>)}</div>
@@ -114,6 +128,14 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
         </div>
         {!selectedProfile.isDefault && <div className="profile-header-actions"><button type="button" disabled={busy} onClick={() => void mutate(() => api(`/api/admin/profiles/${selectedProfile.id}`, { method: 'PUT', body: JSON.stringify({ version: selectedProfile.version, isDefault: true }) }, csrfToken))}>{t('profiles.makeDefault')}</button><button className="danger-link" type="button" onClick={() => setConfirmDelete(true)}>{t('profiles.remove')}</button></div>}
       </header>
+      <section className="profile-timeout-card">
+        <div className="profile-timeout-copy"><span><Icon name="pending" size={20} /></span><div><strong>{t('profiles.timeouts')}</strong><small>{t('profiles.timeoutRange')}</small></div></div>
+        <div className="profile-timeout-fields">
+          <label><span><strong>{t('profiles.approvalTimeout')}</strong><small>{t('profiles.approvalTimeoutHint')}</small></span><span className="timeout-input"><input aria-label={t('profiles.approvalTimeout')} type="number" inputMode="numeric" min="1" max="86400" step="1" value={approvalTimeoutDraft} onChange={(event) => setApprovalTimeoutDraft(event.target.value)} /><em>{t('profiles.seconds')}</em></span></label>
+          <label><span><strong>{t('profiles.toolTimeout')}</strong><small>{t('profiles.toolTimeoutHint')}</small></span><span className="timeout-input"><input aria-label={t('profiles.toolTimeout')} type="number" inputMode="numeric" min="1" max="86400" step="1" value={timeoutDraft} onChange={(event) => setTimeoutDraft(event.target.value)} /><em>{t('profiles.seconds')}</em></span></label>
+        </div>
+        <button className="primary compact" type="button" disabled={busy || !approvalTimeoutValid || !timeoutValid || (approvalTimeoutSeconds === selectedProfile.approvalTimeoutSeconds && timeoutSeconds === selectedProfile.toolCallTimeoutSeconds)} onClick={() => void mutate(() => api(`/api/admin/profiles/${selectedProfile.id}`, { method: 'PUT', body: JSON.stringify({ version: selectedProfile.version, approvalTimeoutSeconds, toolCallTimeoutSeconds: timeoutSeconds }) }, csrfToken))}>{t('common.save')}</button>
+      </section>
       {selectedProfile.isDefault && <p className="info-line"><Icon name="info" />{t('profiles.defaultExplanation')}</p>}
       {rules.length === 0 && <p className="info-banner"><Icon name="info" />{t('profiles.noRules')}</p>}
       {confirmDelete && <div className="delete-profile-confirm" role="alertdialog"><div><strong>{t('profiles.remove')} “{selectedProfile.name}”?</strong><p>{selectedProfile.ruleCount} {t('profiles.rules')} · {selectedProfile.tokenCount} {t('profiles.agents')}</p></div><button type="button" onClick={() => setConfirmDelete(false)}>{t('common.cancel')}</button><button className="danger-button" type="button" disabled={busy} onClick={() => void mutate(async () => { await api(`/api/admin/profiles/${selectedProfile.id}`, { method: 'DELETE', body: JSON.stringify({ version: selectedProfile.version }) }, csrfToken); setSelectedId(defaultProfile?.id ?? ''); setConfirmDelete(false); }, false)}>{t('profiles.remove')}</button></div>}

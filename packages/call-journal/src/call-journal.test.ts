@@ -96,6 +96,33 @@ describe('CallJournal', () => {
     expect(Buffer.concat(csvChunks).toString('utf8')).toContain(
       'callId,timestamp,type,clientTokenId,upstreamId,toolName',
     );
+
+    const enrichedJsonChunks: Uint8Array[] = [];
+    for await (const chunk of journal.export(
+      { clientTokenId: 'token-2' },
+      'jsonl',
+      () => ({ tokenLabel: 'Claude Code', upstreamAlias: 'Signal' }),
+    )) {
+      enrichedJsonChunks.push(chunk);
+    }
+    const enrichedCsvChunks: Uint8Array[] = [];
+    for await (const chunk of journal.export(
+      { clientTokenId: 'token-2' },
+      'csv',
+      () => ({ tokenLabel: 'Claude Code', upstreamAlias: 'Signal' }),
+    )) {
+      enrichedCsvChunks.push(chunk);
+    }
+
+    expect(Buffer.concat(enrichedJsonChunks).toString('utf8')).toContain(
+      '"tokenLabel":"Claude Code","upstreamAlias":"Signal"',
+    );
+    expect(Buffer.concat(enrichedCsvChunks).toString('utf8')).toContain(
+      'clientTokenId,upstreamId,toolName,tokenLabel,upstreamAlias',
+    );
+    expect(Buffer.concat(enrichedCsvChunks).toString('utf8')).toContain(
+      '"Claude Code","Signal"',
+    );
   });
 
   it('deletes only closed segments older than retention', async () => {

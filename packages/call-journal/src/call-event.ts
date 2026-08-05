@@ -61,6 +61,15 @@ export interface CallPage {
   nextCursor?: string;
 }
 
+export interface CallDisplayNames {
+  tokenLabel?: string;
+  upstreamAlias?: string;
+}
+
+export type CallDisplayNameResolver = (
+  event: CallEvent,
+) => CallDisplayNames;
+
 export interface JournalRecovery {
   truncatedLines: number;
 }

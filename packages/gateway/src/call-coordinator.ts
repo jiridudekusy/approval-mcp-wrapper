@@ -11,6 +11,10 @@ import type {
   UpstreamId,
 } from '@approval-mcp/contracts';
 import {
+  DEFAULT_APPROVAL_TIMEOUT_SECONDS,
+  DEFAULT_TOOL_CALL_TIMEOUT_SECONDS,
+} from '@approval-mcp/contracts';
+import {
   canonicalRequestHash,
   evaluatePolicy,
 } from '@approval-mcp/policy';
@@ -54,6 +58,8 @@ interface CoordinatorUpstream {
     upstreamId: UpstreamId;
     toolName: string;
     arguments?: Record<string, unknown>;
+    signal?: AbortSignal;
+    timeoutMs?: number;
   }): Promise<unknown>;
 }
 
@@ -68,7 +74,8 @@ interface PolicyCallCoordinatorOptions {
   upstream: CoordinatorUpstream;
   journal: CoordinatorJournal;
   normalizationVersion?: number;
-  approvalTimeoutMs?: number;
+  approvalTimeoutMs?(input: AuthorizedToolCall): number;
+  toolCallTimeoutMs?(input: AuthorizedToolCall): number;
   sensitivePaths?: readonly string[];
   now?: () => Date;
 }
@@ -135,7 +142,9 @@ export class PolicyCallCoordinator implements CallCoordinator {
         reasonCode: decision.reasonCode,
       });
       const expiresAt = new Date(
-        startedAt.getTime() + (this.#options.approvalTimeoutMs ?? 5 * 60_000),
+        startedAt.getTime() +
+          (this.#options.approvalTimeoutMs?.(input) ??
+            DEFAULT_APPROVAL_TIMEOUT_SECONDS * 1_000),
       ).toISOString();
       const outcome = await this.#options.approvals.request(
         {
@@ -185,6 +194,9 @@ export class PolicyCallCoordinator implements CallCoordinator {
           upstreamId: input.upstreamId,
           toolName: input.toolName,
           arguments: input.arguments,
+          signal,
+          timeoutMs: this.#options.toolCallTimeoutMs?.(input) ??
+            DEFAULT_TOOL_CALL_TIMEOUT_SECONDS * 1_000,
         })) as CallToolResult;
         await this.#terminal(input, callId, 'success', startedAt);
         return result;

@@ -61,12 +61,14 @@ describe('PolicyCallCoordinator', () => {
     };
     const coordinator = new PolicyCallCoordinator({
       policies: () => [policy],
+      toolCallTimeoutMs: () => 120_000,
       grants: () => [],
       approvals: { request: vi.fn() },
       upstream,
       journal: { append: async (event) => void events.push(event) },
     });
 
+    const signal = new AbortController().signal;
     await coordinator.call(
       {
         clientTokenId: policy.clientTokenId,
@@ -74,10 +76,17 @@ describe('PolicyCallCoordinator', () => {
         toolName: policy.toolName,
         arguments: { message: 'hello', authorization: 'secret' },
       },
-      new AbortController().signal,
+      signal,
     );
 
     expect(upstream.call).toHaveBeenCalledTimes(1);
+    expect(upstream.call).toHaveBeenCalledWith({
+      upstreamId: policy.upstreamId,
+      toolName: policy.toolName,
+      arguments: { message: 'hello', authorization: 'secret' },
+      signal,
+      timeoutMs: 120_000,
+    });
     expect(events.map((event) => event.type)).toEqual([
       'call.received',
       'policy.decided',
@@ -85,5 +94,53 @@ describe('PolicyCallCoordinator', () => {
       'call.completed',
     ]);
     expect(JSON.stringify(events)).not.toContain('secret');
+  });
+
+  it('uses the per-call approval timeout when creating the approval request', async () => {
+    const now = new Date('2026-08-05T12:00:00.000Z');
+    const policy: Policy = {
+      id: 'policy-approval' as PolicyId,
+      clientTokenId: 'token-1' as ClientTokenId,
+      upstreamId: 'upstream-1' as UpstreamId,
+      toolName: 'long_task',
+      outcome: 'require_approval',
+      predicates: [],
+      enabled: true,
+      schemaVersion: 1,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      version: 1,
+    };
+    const approvals = {
+      request: vi.fn().mockRejectedValue(new Error('captured approval request')),
+    };
+    const coordinator = new PolicyCallCoordinator({
+      policies: () => [policy],
+      approvalTimeoutMs: () => 180_000,
+      grants: () => [],
+      approvals,
+      upstream: { call: vi.fn() },
+      journal: { append: vi.fn().mockResolvedValue(undefined) },
+      now: () => now,
+    });
+    const signal = new AbortController().signal;
+
+    await expect(
+      coordinator.call(
+        {
+          clientTokenId: policy.clientTokenId,
+          upstreamId: policy.upstreamId,
+          toolName: policy.toolName,
+          arguments: {},
+        },
+        signal,
+      ),
+    ).rejects.toThrow('captured approval request');
+    expect(approvals.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expiresAt: '2026-08-05T12:03:00.000Z',
+      }),
+      signal,
+    );
   });
 });

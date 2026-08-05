@@ -40,4 +40,34 @@ describe('active grants UI', () => {
     expect(html).toContain('Revoke');
     expect(html).toContain('2026');
   });
+
+  it('does not expose internal IDs when referenced records are missing', () => {
+    const grant: GrantView = {
+      id: 'grant-1',
+      clientTokenId: 'private-token-id',
+      upstreamId: 'private-upstream-id',
+      toolName: 'send_message',
+      predicates: [],
+      scope: 'forever',
+      createdAt: '2026-07-30T08:28:22.098Z',
+      version: 1,
+    };
+
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(ActiveGrants, {
+          grants: [grant],
+          revokingId: undefined,
+          onRevoke: () => undefined,
+        }),
+      ),
+    );
+
+    expect(html).toContain('Unknown or removed agent');
+    expect(html).toContain('Unknown or removed upstream');
+    expect(html).not.toContain('private-token-id');
+    expect(html).not.toContain('private-upstream-id');
+  });
 });

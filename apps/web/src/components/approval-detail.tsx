@@ -87,8 +87,8 @@ export function ApprovalDetail({
       </header>
       {!connected && <p className="connection-warning">{t('approval.disconnected')}</p>}
       <dl className="approval-meta">
-        <div><dt>{t('approval.token')}</dt><dd>{approval.tokenId}</dd></div>
-        <div><dt>{t('approval.upstream')}</dt><dd>{approval.upstreamId}</dd></div>
+        <div><dt>{t('approval.agent')}</dt><dd>{approval.agentName ?? t('common.unknownAgent')}</dd></div>
+        <div><dt>{t('approval.upstream')}</dt><dd>{approval.upstreamName ?? t('common.unknownUpstream')}</dd></div>
         <div><dt>{t('approval.received')}</dt><dd>{new Date(approval.createdAt).toLocaleString()}</dd></div>
       </dl>
       <h3>{t('approval.arguments')}</h3>

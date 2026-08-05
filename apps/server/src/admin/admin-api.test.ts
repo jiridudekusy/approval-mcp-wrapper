@@ -2,6 +2,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { CallJournal } from '@approval-mcp/call-journal';
 import { createConfigStateStore } from '@approval-mcp/state-store';
 import { CredentialVault } from '@approval-mcp/upstream';
 import {
@@ -37,6 +38,7 @@ async function fixture(options?: {
     }[];
   }>;
   onUpstreamsChanged?(): Promise<void>;
+  journal?: CallJournal;
   seed?(store: Awaited<ReturnType<typeof createConfigStateStore>>): Promise<void>;
 }) {
   const store = await createConfigStateStore(
@@ -62,6 +64,7 @@ async function fixture(options?: {
     sessions,
     state: store,
     tokens: new TokenService(new StateStoreTokenRepository(store)),
+    journal: options?.journal,
     discoverTools: options?.discoverTools,
     credentialVault: new CredentialVault(Buffer.alloc(32, 7)),
     onUpstreamsChanged: options?.onUpstreamsChanged,
@@ -78,6 +81,49 @@ async function fixture(options?: {
 }
 
 describe('admin API', () => {
+  it('backfills the default tool timeout on existing profiles', async () => {
+    const now = '2026-07-30T00:00:00.000Z';
+    const { app, authHeaders, store } = await fixture({
+      seed: async (state) => {
+        await state.mutate({
+          type: 'record.upserted',
+          collection: 'profiles',
+          id: 'legacy-default',
+          value: {
+            id: 'legacy-default',
+            name: 'Default',
+            isDefault: true,
+            schemaVersion: 1,
+            createdAt: now,
+            updatedAt: now,
+            version: 1,
+          },
+        });
+      },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/admin/profiles',
+      headers: { cookie: authHeaders.cookie },
+    });
+
+    expect(response.json()).toEqual([
+      expect.objectContaining({
+        id: 'legacy-default',
+        approvalTimeoutSeconds: 60,
+        toolCallTimeoutSeconds: 60,
+        version: 2,
+      }),
+    ]);
+    expect(store.read((state) => state.profiles['legacy-default'])).toEqual(
+      expect.objectContaining({
+        approvalTimeoutSeconds: 60,
+        toolCallTimeoutSeconds: 60,
+      }),
+    );
+  });
+
   it('migrates existing token policies into an assigned profile', async () => {
     const now = '2026-07-30T00:00:00.000Z';
     const { app, authHeaders, store } = await fixture({
@@ -194,7 +240,12 @@ describe('admin API', () => {
       headers: { cookie: authHeaders.cookie },
     });
     expect(defaults.json()).toEqual([
-      expect.objectContaining({ name: 'Default', isDefault: true }),
+      expect.objectContaining({
+        name: 'Default',
+        isDefault: true,
+        approvalTimeoutSeconds: 60,
+        toolCallTimeoutSeconds: 60,
+      }),
     ]);
 
     const tokenResponse = await app.inject({
@@ -303,6 +354,81 @@ describe('admin API', () => {
         .json<{ id: string; profileIds: string[] }[]>()
         .find((token) => token.id === tokenId)?.profileIds,
     ).toEqual([profile.id, second.id]);
+  });
+
+  it('creates, validates, and updates both per-profile timeouts', async () => {
+    const { app, authHeaders } = await fixture();
+    const defaultedResponse = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profiles',
+      headers: authHeaders,
+      payload: { name: 'Standard' },
+    });
+    expect(defaultedResponse.statusCode).toBe(201);
+    expect(defaultedResponse.json()).toEqual(
+      expect.objectContaining({
+        approvalTimeoutSeconds: 60,
+        toolCallTimeoutSeconds: 60,
+      }),
+    );
+
+    const createdResponse = await app.inject({
+      method: 'POST',
+      url: '/api/admin/profiles',
+      headers: authHeaders,
+      payload: {
+        name: 'Long running',
+        approvalTimeoutSeconds: 600,
+        toolCallTimeoutSeconds: 1_800,
+      },
+    });
+    expect(createdResponse.statusCode).toBe(201);
+    const created = createdResponse.json<{
+      id: string;
+      approvalTimeoutSeconds: number;
+      toolCallTimeoutSeconds: number;
+      version: number;
+    }>();
+    expect(created.approvalTimeoutSeconds).toBe(600);
+    expect(created.toolCallTimeoutSeconds).toBe(1_800);
+
+    const updatedResponse = await app.inject({
+      method: 'PUT',
+      url: `/api/admin/profiles/${created.id}`,
+      headers: authHeaders,
+      payload: {
+        version: created.version,
+        approvalTimeoutSeconds: 1_200,
+        toolCallTimeoutSeconds: 3_600,
+      },
+    });
+    expect(updatedResponse.statusCode).toBe(200);
+    expect(updatedResponse.json()).toEqual(
+      expect.objectContaining({
+        approvalTimeoutSeconds: 1_200,
+        toolCallTimeoutSeconds: 3_600,
+        version: 2,
+      }),
+    );
+
+    for (const invalid of [0, 86_401, 1.5, '120']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/admin/profiles',
+        headers: authHeaders,
+        payload: { name: 'Invalid timeout', toolCallTimeoutSeconds: invalid },
+      });
+      expect(response.statusCode).toBe(400);
+    }
+    for (const invalid of [0, 86_401, 1.5, '120']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/admin/profiles',
+        headers: authHeaders,
+        payload: { name: 'Invalid approval', approvalTimeoutSeconds: invalid },
+      });
+      expect(response.statusCode).toBe(400);
+    }
   });
 
   it('retires direct policy writes that would bypass profiles', async () => {
@@ -441,6 +567,141 @@ describe('admin API', () => {
     expect(listed.json()).toEqual([
       expect.objectContaining({ label: 'Agent' }),
     ]);
+  });
+
+  it('adds agent and upstream display names to approvals and history', async () => {
+    const now = '2026-07-30T08:28:22.098Z';
+    const event = {
+      eventId: 'event-1',
+      callId: 'call-1',
+      timestamp: now,
+      type: 'call.received' as const,
+      clientTokenId: 'token-1',
+      upstreamId: 'upstream-1',
+      toolName: 'send_message',
+    };
+    const journal: CallJournal = {
+      recovery: { truncatedLines: 0 },
+      append: async () => undefined,
+      compressClosedSegments: async () => [],
+      query: async () => ({
+        items: [{
+          callId: event.callId,
+          firstSeenAt: now,
+          lastSeenAt: now,
+          clientTokenId: event.clientTokenId,
+          upstreamId: event.upstreamId,
+          toolName: event.toolName,
+        }],
+      }),
+      get: async () => ({ callId: event.callId, events: [event] }),
+      export: async function* () {},
+      enforceRetention: async () => ({ deletedFiles: [], deletedBytes: 0 }),
+    };
+    const { app, authHeaders } = await fixture({
+      journal,
+      seed: async (store) => {
+        await store.mutate({
+          type: 'records.batch',
+          operations: [
+            {
+              type: 'record.upserted',
+              collection: 'clientTokens',
+              id: 'token-1',
+              value: {
+                id: 'token-1',
+                label: 'Claude Code',
+                hash: 'hash',
+                salt: 'salt',
+                schemaVersion: 1,
+                createdAt: now,
+                updatedAt: now,
+                version: 1,
+              },
+            },
+            {
+              type: 'record.upserted',
+              collection: 'upstreams',
+              id: 'upstream-1',
+              value: {
+                id: 'upstream-1',
+                alias: 'Signal',
+                url: 'https://signal.example/mcp',
+                allowPrivateNetwork: false,
+                schemaVersion: 1,
+                createdAt: now,
+                updatedAt: now,
+                version: 1,
+              },
+            },
+            {
+              type: 'record.upserted',
+              collection: 'approvals',
+              id: 'approval-1',
+              value: {
+                approval: {
+                  id: 'approval-1',
+                  callId: 'call-1',
+                  requestHash: 'request-hash',
+                  status: 'pending',
+                  reasonCode: 'policy.require_approval',
+                  schemaVersion: 1,
+                  createdAt: now,
+                  updatedAt: now,
+                  version: 1,
+                },
+                request: {
+                  callId: 'call-1',
+                  clientTokenId: 'token-1',
+                  upstreamId: 'upstream-1',
+                  toolName: 'send_message',
+                  requestHash: 'request-hash',
+                  context: {},
+                  normalizationVersion: 1,
+                  reasonCode: 'policy.require_approval',
+                  expiresAt: '2099-07-30T08:28:22.098Z',
+                },
+              },
+            },
+          ],
+        });
+      },
+    });
+    const headers = { cookie: authHeaders.cookie };
+
+    const approvals = await app.inject({
+      method: 'GET',
+      url: '/api/admin/approvals',
+      headers,
+    });
+    expect(approvals.json()).toEqual([
+      expect.objectContaining({
+        tokenLabel: 'Claude Code',
+        upstreamAlias: 'Signal',
+      }),
+    ]);
+
+    const history = await app.inject({
+      method: 'GET',
+      url: '/api/admin/history',
+      headers,
+    });
+    expect(history.json().items).toEqual([
+      expect.objectContaining({
+        tokenLabel: 'Claude Code',
+        upstreamAlias: 'Signal',
+      }),
+    ]);
+
+    const timeline = await app.inject({
+      method: 'GET',
+      url: '/api/admin/history/call-1',
+      headers,
+    });
+    expect(timeline.json()).toEqual(expect.objectContaining({
+      tokenLabel: 'Claude Code',
+      upstreamAlias: 'Signal',
+    }));
   });
 
   it('lists reusable active grants with display names and revokes them', async () => {

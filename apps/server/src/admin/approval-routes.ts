@@ -3,12 +3,16 @@ import type {
   ApprovalDecision,
   ApprovalId,
 } from '@approval-mcp/contracts';
-import type { ApprovalOrchestrator } from '@approval-mcp/gateway';
+import type {
+  ApprovalOrchestrator,
+  ApprovalRecord,
+} from '@approval-mcp/gateway';
 import type { ConfigStateStore } from '@approval-mcp/state-store';
 import type { FastifyInstance } from 'fastify';
 
 import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
+import { entityDisplayNames } from './entity-display-names.js';
 import type { ApprovalEventBroker } from './sse-broker.js';
 
 export function openSseResponse(response: {
@@ -40,7 +44,17 @@ export async function registerApprovalRoutes(
   app.get('/api/admin/approvals', async (request, reply) => {
     if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
     return options.state.read((state) =>
-      Object.values(state.approvals),
+      Object.values(state.approvals).map((value) => {
+        const record = value as unknown as ApprovalRecord;
+        return {
+          ...record,
+          ...entityDisplayNames(
+            state,
+            record.request.clientTokenId,
+            record.request.upstreamId,
+          ),
+        };
+      }),
     );
   });
 

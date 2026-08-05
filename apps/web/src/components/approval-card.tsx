@@ -17,8 +17,8 @@ export function ApprovalCard({
       </div>
       <h2>{approval.toolName}</h2>
       <dl>
-        <div><dt>{t('approval.upstream')}</dt><dd>{approval.upstreamId}</dd></div>
-        <div><dt>{t('approval.token')}</dt><dd>{approval.tokenId}</dd></div>
+        <div><dt>{t('approval.agent')}</dt><dd>{approval.agentName ?? t('common.unknownAgent')}</dd></div>
+        <div><dt>{t('approval.upstream')}</dt><dd>{approval.upstreamName ?? t('common.unknownUpstream')}</dd></div>
       </dl>
       <time>{formatDate(approval.createdAt)}</time>
     </button>

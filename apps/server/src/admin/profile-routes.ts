@@ -12,6 +12,14 @@ import type {
   TokenProfileAssignmentId,
   UpstreamId,
 } from '@approval-mcp/contracts';
+import {
+  DEFAULT_APPROVAL_TIMEOUT_SECONDS,
+  DEFAULT_TOOL_CALL_TIMEOUT_SECONDS,
+  MAX_APPROVAL_TIMEOUT_SECONDS,
+  MAX_TOOL_CALL_TIMEOUT_SECONDS,
+  MIN_APPROVAL_TIMEOUT_SECONDS,
+  MIN_TOOL_CALL_TIMEOUT_SECONDS,
+} from '@approval-mcp/contracts';
 import type { ConfigStateStore, StateOperation } from '@approval-mcp/state-store';
 import type { FastifyInstance } from 'fastify';
 
@@ -27,18 +35,54 @@ function upsert(collection: StateOperation['collection'], id: string, value: unk
   };
 }
 
+function validToolCallTimeoutSeconds(value: unknown): value is number {
+  return Number.isInteger(value) &&
+    Number(value) >= MIN_TOOL_CALL_TIMEOUT_SECONDS &&
+    Number(value) <= MAX_TOOL_CALL_TIMEOUT_SECONDS;
+}
+
+function validApprovalTimeoutSeconds(value: unknown): value is number {
+  return Number.isInteger(value) &&
+    Number(value) >= MIN_APPROVAL_TIMEOUT_SECONDS &&
+    Number(value) <= MAX_APPROVAL_TIMEOUT_SECONDS;
+}
+
 async function initializeProfiles(state: ConfigStateStore): Promise<void> {
   const initial = state.read((current) => ({
     empty: Object.keys(current.profiles).length === 0,
+    profiles: Object.values(current.profiles) as unknown as Profile[],
     policies: Object.values(current.policies) as unknown as Policy[],
     tokens: current.clientTokens,
   }));
-  if (!initial.empty) return;
   const now = new Date().toISOString();
+  if (!initial.empty) {
+    const operations = initial.profiles
+      .filter((profile) =>
+        !validApprovalTimeoutSeconds(profile.approvalTimeoutSeconds) ||
+        !validToolCallTimeoutSeconds(profile.toolCallTimeoutSeconds),
+      )
+      .map((profile) => upsert('profiles', profile.id, {
+        ...profile,
+        approvalTimeoutSeconds: validApprovalTimeoutSeconds(profile.approvalTimeoutSeconds)
+          ? profile.approvalTimeoutSeconds
+          : DEFAULT_APPROVAL_TIMEOUT_SECONDS,
+        toolCallTimeoutSeconds: validToolCallTimeoutSeconds(profile.toolCallTimeoutSeconds)
+          ? profile.toolCallTimeoutSeconds
+          : DEFAULT_TOOL_CALL_TIMEOUT_SECONDS,
+        updatedAt: now,
+        version: profile.version + 1,
+      }));
+    if (operations.length > 0) {
+      await state.mutate({ type: 'records.batch', operations });
+    }
+    return;
+  }
   const defaultProfile: Profile = {
     id: randomUUID() as ProfileId,
     name: 'Default',
     isDefault: true,
+    approvalTimeoutSeconds: DEFAULT_APPROVAL_TIMEOUT_SECONDS,
+    toolCallTimeoutSeconds: DEFAULT_TOOL_CALL_TIMEOUT_SECONDS,
     schemaVersion: 1,
     createdAt: now,
     updatedAt: now,
@@ -83,6 +127,8 @@ async function initializeProfiles(state: ConfigStateStore): Promise<void> {
         id: randomUUID() as ProfileId,
         name: layer === 0 ? baseName : `${baseName} (${layer + 1})`,
         isDefault: false,
+        approvalTimeoutSeconds: DEFAULT_APPROVAL_TIMEOUT_SECONDS,
+        toolCallTimeoutSeconds: DEFAULT_TOOL_CALL_TIMEOUT_SECONDS,
         schemaVersion: 1,
         createdAt: now,
         updatedAt: now,
@@ -168,15 +214,33 @@ export async function registerProfileRoutes(
 
   app.post('/api/admin/profiles', async (request, reply) => {
     if (!await authorizeAdmin(request, reply, options.sessions, true)) return;
-    const { name } = request.body as { name?: unknown };
+    const {
+      approvalTimeoutSeconds: requestedApprovalTimeout,
+      name,
+      toolCallTimeoutSeconds: requestedToolTimeout,
+    } = request.body as {
+      approvalTimeoutSeconds?: unknown;
+      name?: unknown;
+      toolCallTimeoutSeconds?: unknown;
+    };
     if (typeof name !== 'string' || name.trim().length === 0) {
       return reply.code(400).send({ error: { code: 'input.invalid', message: 'Invalid profile name', requestId: request.id } });
+    }
+    const approvalTimeoutSeconds = requestedApprovalTimeout ?? DEFAULT_APPROVAL_TIMEOUT_SECONDS;
+    if (!validApprovalTimeoutSeconds(approvalTimeoutSeconds)) {
+      return reply.code(400).send({ error: { code: 'input.invalid', message: 'Invalid approval timeout', requestId: request.id } });
+    }
+    const toolCallTimeoutSeconds = requestedToolTimeout ?? DEFAULT_TOOL_CALL_TIMEOUT_SECONDS;
+    if (!validToolCallTimeoutSeconds(toolCallTimeoutSeconds)) {
+      return reply.code(400).send({ error: { code: 'input.invalid', message: 'Invalid tool call timeout', requestId: request.id } });
     }
     const now = new Date().toISOString();
     const profile: Profile = {
       id: randomUUID() as ProfileId,
       name: name.trim(),
       isDefault: false,
+      approvalTimeoutSeconds,
+      toolCallTimeoutSeconds,
       schemaVersion: 1,
       createdAt: now,
       updatedAt: now,
@@ -190,7 +254,13 @@ export async function registerProfileRoutes(
     if (!await authorizeAdmin(request, reply, options.sessions, true)) return;
     return serialized(async () => {
     const { id } = request.params as { id: string };
-    const body = request.body as { name?: unknown; isDefault?: unknown; version?: unknown };
+    const body = request.body as {
+      approvalTimeoutSeconds?: unknown;
+      name?: unknown;
+      isDefault?: unknown;
+      toolCallTimeoutSeconds?: unknown;
+      version?: unknown;
+    };
     const profiles = options.state.read(
       (state) => Object.values(state.profiles) as unknown as Profile[],
     );
@@ -199,6 +269,12 @@ export async function registerProfileRoutes(
     if (body.version !== current.version) return reply.code(409).send({ error: { code: 'state.version_conflict', message: 'The record has changed', requestId: request.id } });
     if (body.name !== undefined && (typeof body.name !== 'string' || body.name.trim().length === 0)) {
       return reply.code(400).send({ error: { code: 'input.invalid', message: 'Invalid profile name', requestId: request.id } });
+    }
+    if (body.approvalTimeoutSeconds !== undefined && !validApprovalTimeoutSeconds(body.approvalTimeoutSeconds)) {
+      return reply.code(400).send({ error: { code: 'input.invalid', message: 'Invalid approval timeout', requestId: request.id } });
+    }
+    if (body.toolCallTimeoutSeconds !== undefined && !validToolCallTimeoutSeconds(body.toolCallTimeoutSeconds)) {
+      return reply.code(400).send({ error: { code: 'input.invalid', message: 'Invalid tool call timeout', requestId: request.id } });
     }
     const now = new Date().toISOString();
     const operations: StateOperation[] = [];
@@ -213,6 +289,12 @@ export async function registerProfileRoutes(
       ...current,
       ...(typeof body.name === 'string' ? { name: body.name.trim() } : {}),
       ...(body.isDefault === true ? { isDefault: true } : {}),
+      ...(typeof body.approvalTimeoutSeconds === 'number'
+        ? { approvalTimeoutSeconds: body.approvalTimeoutSeconds }
+        : {}),
+      ...(typeof body.toolCallTimeoutSeconds === 'number'
+        ? { toolCallTimeoutSeconds: body.toolCallTimeoutSeconds }
+        : {}),
       updatedAt: now,
       version: current.version + 1,
     };

@@ -1,10 +1,12 @@
 import { once } from 'node:events';
 
 import type { CallFilter, CallJournal } from '@approval-mcp/call-journal';
+import type { ConfigStateStore } from '@approval-mcp/state-store';
 import type { FastifyInstance } from 'fastify';
 
 import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
+import { entityDisplayNames } from './entity-display-names.js';
 
 function filter(query: Record<string, unknown>): CallFilter {
   const result: CallFilter = {};
@@ -28,16 +30,31 @@ function filter(query: Record<string, unknown>): CallFilter {
 
 export async function registerHistoryRoutes(
   app: FastifyInstance,
-  options: { sessions: SessionService; journal?: CallJournal },
+  options: {
+    sessions: SessionService;
+    state: ConfigStateStore;
+    journal?: CallJournal;
+  },
 ): Promise<void> {
   app.get('/api/admin/history', async (request, reply) => {
     if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
     if (options.journal === undefined) throw new Error('Call journal unavailable');
     const query = request.query as Record<string, unknown>;
-    return options.journal.query(
+    const page = await options.journal.query(
       filter(query),
       typeof query['cursor'] === 'string' ? query['cursor'] : undefined,
     );
+    return options.state.read((state) => ({
+      ...page,
+      items: page.items.map((item) => ({
+        ...item,
+        ...entityDisplayNames(
+          state,
+          item.clientTokenId,
+          item.upstreamId,
+        ),
+      })),
+    }));
   });
 
   app.get('/api/admin/history/:callId', async (request, reply) => {
@@ -49,7 +66,17 @@ export async function registerHistoryRoutes(
       reply.code(404);
       return { error: { code: 'history.not_found', message: 'Call not found', requestId: request.id } };
     }
-    return result;
+    const first = result.events[0];
+    return first === undefined
+      ? result
+      : options.state.read((state) => ({
+          ...result,
+          ...entityDisplayNames(
+            state,
+            first.clientTokenId,
+            first.upstreamId,
+          ),
+        }));
   });
 
   app.get('/api/admin/history/export', async (request, reply) => {
@@ -62,7 +89,17 @@ export async function registerHistoryRoutes(
       'content-type': format === 'csv' ? 'text/csv' : 'application/x-ndjson',
       'content-disposition': `attachment; filename="approval-mcp-history.${format}"`,
     });
-    for await (const chunk of options.journal.export(filter(query), format)) {
+    for await (const chunk of options.journal.export(
+      filter(query),
+      format,
+      (event) => options.state.read((state) =>
+        entityDisplayNames(
+          state,
+          event.clientTokenId,
+          event.upstreamId,
+        ),
+      ),
+    )) {
       if (!reply.raw.write(chunk)) await once(reply.raw, 'drain');
     }
     reply.raw.end();

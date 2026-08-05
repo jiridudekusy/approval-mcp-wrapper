@@ -73,20 +73,26 @@ describe('UpstreamRegistry', () => {
       upstreams: [upstream()],
       connectionFactory: factory,
     });
+    const signal = new AbortController().signal;
 
     const catalog = await registry.refresh(upstreamId);
     const result = await registry.call({
       upstreamId,
       toolName: 'alpha',
       arguments: { downstreamAuthorization: 'must-not-be-forwarded' },
+      signal,
+      timeoutMs: 120_000,
     });
 
     expect(catalog.tools.map((tool) => tool.name)).toEqual(['alpha', 'zeta']);
     expect(result).toEqual({ content: [{ type: 'text', text: 'done' }] });
-    expect(connection.callTool).toHaveBeenCalledWith({
-      name: 'alpha',
-      arguments: { downstreamAuthorization: 'must-not-be-forwarded' },
-    });
+    expect(connection.callTool).toHaveBeenCalledWith(
+      {
+        name: 'alpha',
+        arguments: { downstreamAuthorization: 'must-not-be-forwarded' },
+      },
+      { signal, timeoutMs: 120_000 },
+    );
     expect(registry.health(upstreamId).status).toBe('healthy');
   });
 

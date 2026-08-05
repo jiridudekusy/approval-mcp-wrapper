@@ -20,6 +20,9 @@ export interface McpConnection {
   callTool(input: {
     name: string;
     arguments?: Record<string, unknown>;
+  }, options?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
   }): Promise<unknown>;
   close(): Promise<void>;
 }
@@ -231,7 +234,10 @@ export class OfficialMcpConnectionFactory implements McpConnectionFactory {
     await client.connect(transport as Transport);
     return {
       listTools: () => client.listTools(),
-      callTool: (call) => client.callTool(call),
+      callTool: (call, options) => client.callTool(call, undefined, {
+        ...(options?.signal === undefined ? {} : { signal: options.signal }),
+        ...(options?.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+      }),
       close: () => client.close(),
     };
   }
