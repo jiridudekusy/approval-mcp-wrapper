@@ -7,3 +7,4 @@ export * from './state-store-token-repository.js';
 export * from './state-store-approval-repository.js';
 export * from './token-service.js';
 export * from './tool-name.js';
+export * from './tool-inspection.js';

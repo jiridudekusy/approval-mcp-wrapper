@@ -20,6 +20,26 @@ export type TokenVisibility = ReadonlyMap<
   ReadonlySet<string>
 >;
 
+export function withPolicyDescription(
+  tool: McpTool,
+  policy: {
+    approvalMayBeRequired: boolean;
+    approvalTimeoutSeconds: number;
+    toolCallTimeoutSeconds: number;
+  },
+): McpTool {
+  const approval = policy.approvalMayBeRequired
+    ? `human approval may be required (approval wait limit ${policy.approvalTimeoutSeconds} seconds)`
+    : `human approval is not normally required (configured approval wait limit ${policy.approvalTimeoutSeconds} seconds)`;
+  const notice = `Approval MCP: ${approval}; tool execution limit ${policy.toolCallTimeoutSeconds} seconds. Call approval_mcp__inspect_tool with the intended arguments for the exact current decision.`;
+  return {
+    ...tool,
+    description: tool.description?.trim()
+      ? `${tool.description.trim()}\n\n${notice}`
+      : notice,
+  };
+}
+
 export function buildTokenCatalog(
   tokenId: ClientTokenId,
   sourceTools: readonly CatalogSourceTool[],

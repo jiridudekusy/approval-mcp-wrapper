@@ -1,4 +1,12 @@
-import type { ClientTokenId, UpstreamId } from '@approval-mcp/contracts';
+import type {
+  AdminId,
+  ClientTokenId,
+  Grant,
+  GrantId,
+  Policy,
+  PolicyId,
+  UpstreamId,
+} from '@approval-mcp/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -11,6 +19,9 @@ import {
   TokenScopedGateway,
   validateOrigin,
   createMcpHttpHandler,
+  evaluateToolInspection,
+  TOOL_INSPECTION_TOOL_NAME,
+  withPolicyDescription,
 } from './index.js';
 
 const tokenA = 'token-a' as ClientTokenId;
@@ -53,6 +64,84 @@ describe('token-scoped catalog', () => {
       ),
     ).toThrow('alias');
   });
+
+  it('adds policy and timeout guidance without replacing the upstream description', () => {
+    const described = withPolicyDescription(
+      {
+        name: 'send_message',
+        description: 'Send a message.',
+        inputSchema: { type: 'object' },
+      },
+      {
+        approvalMayBeRequired: true,
+        approvalTimeoutSeconds: 300,
+        toolCallTimeoutSeconds: 1_800,
+      },
+    );
+
+    expect(described.description).toContain('Send a message.');
+    expect(described.description).toContain('human approval may be required');
+    expect(described.description).toContain('300 seconds');
+    expect(described.description).toContain('1800 seconds');
+    expect(described.description).toContain(TOOL_INSPECTION_TOOL_NAME);
+  });
+});
+
+describe('tool inspection policy evaluation', () => {
+  const now = '2026-08-06T00:00:00.000Z';
+  const policy: Policy = {
+    id: 'policy-approval' as PolicyId,
+    clientTokenId: tokenA,
+    upstreamId,
+    toolName: 'send_message',
+    outcome: 'require_approval',
+    predicates: [],
+    enabled: true,
+    schemaVersion: 1,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  };
+  const base = {
+    publicToolName: 'signal__send_message',
+    clientTokenId: tokenA,
+    upstreamId,
+    upstreamToolName: 'send_message',
+    argumentsValue: { message: 'hello' },
+    policies: [policy],
+    approvalTimeoutSeconds: 300,
+    toolCallTimeoutSeconds: 1_800,
+    now,
+  };
+
+  it('reports approval and accounts for an active grant bypass', () => {
+    expect(evaluateToolInspection({ ...base, grants: [] })).toMatchObject({
+      outcome: 'require_approval',
+      approvalRequired: true,
+      reasonCode: 'approval.required',
+      approvalTimeoutSeconds: 300,
+      toolCallTimeoutSeconds: 1_800,
+    });
+
+    const grant: Grant = {
+      id: 'grant-1' as GrantId,
+      clientTokenId: tokenA,
+      upstreamId,
+      toolName: 'send_message',
+      predicates: [],
+      normalizationVersion: 1,
+      approvedBy: 'admin-1' as AdminId,
+      schemaVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    expect(evaluateToolInspection({ ...base, grants: [grant] })).toMatchObject({
+      outcome: 'allow',
+      approvalRequired: false,
+      reasonCode: 'grant.matched',
+    });
+  });
 });
 
 describe('TokenScopedGateway', () => {
@@ -71,6 +160,66 @@ describe('TokenScopedGateway', () => {
     await expect(hidden).rejects.toMatchObject({ code: 'tool_not_found' });
     await expect(unknown).rejects.toMatchObject({ code: 'tool_not_found' });
     expect(coordinator.call).not.toHaveBeenCalled();
+  });
+
+  it('exposes the built-in inspection tool without sending it upstream', async () => {
+    const coordinator = { call: vi.fn() };
+    const inspectTool = vi.fn().mockReturnValue({
+      toolName: 'signal__list_groups',
+      outcome: 'require_approval',
+      approvalRequired: true,
+      reasonCode: 'approval.required',
+      approvalTimeoutSeconds: 300,
+      toolCallTimeoutSeconds: 1_800,
+    });
+    const gateway = new TokenScopedGateway({
+      coordinator,
+      catalogFor: () => buildTokenCatalog(tokenA, tools, new Map([
+        [tokenA, new Set(['signal__list_groups'])],
+      ])),
+      inspectTool,
+    });
+
+    await expect(gateway.listTools(tokenA)).resolves.toEqual([
+      expect.objectContaining({
+        name: TOOL_INSPECTION_TOOL_NAME,
+        annotations: expect.objectContaining({ readOnlyHint: true }),
+      }),
+      expect.objectContaining({ name: 'signal__list_groups' }),
+    ]);
+    await expect(
+      gateway.call(
+        tokenA,
+        TOOL_INSPECTION_TOOL_NAME,
+        {
+          toolName: 'signal__list_groups',
+          arguments: { group: 'family' },
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({
+      structuredContent: {
+        toolName: 'signal__list_groups',
+        approvalRequired: true,
+        approvalTimeoutSeconds: 300,
+        toolCallTimeoutSeconds: 1_800,
+      },
+    });
+    expect(inspectTool).toHaveBeenCalledWith(
+      tokenA,
+      'signal__list_groups',
+      { group: 'family' },
+    );
+    expect(coordinator.call).not.toHaveBeenCalled();
+
+    await expect(
+      gateway.call(
+        tokenA,
+        TOOL_INSPECTION_TOOL_NAME,
+        {},
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ isError: true });
   });
 });
 
@@ -107,6 +256,14 @@ describe('Streamable HTTP MCP integration', () => {
           tools,
           new Map([[tokenA, new Set(['signal__list_groups'])]]),
         ),
+      inspectTool: (_tokenId, toolName) => ({
+        toolName,
+        outcome: 'require_approval',
+        approvalRequired: true,
+        reasonCode: 'approval.required',
+        approvalTimeoutSeconds: 300,
+        toolCallTimeoutSeconds: 1_800,
+      }),
     });
     const handler = createMcpHttpHandler({
       allowedOrigins: ['https://admin.example.test'],
@@ -139,7 +296,26 @@ describe('Streamable HTTP MCP integration', () => {
     try {
       await client.connect(transport as Transport);
       await expect(client.listTools()).resolves.toMatchObject({
-        tools: [{ name: 'signal__list_groups' }],
+        tools: [
+          {
+            name: TOOL_INSPECTION_TOOL_NAME,
+            annotations: { readOnlyHint: true },
+          },
+          { name: 'signal__list_groups' },
+        ],
+      });
+      await expect(
+        client.callTool({
+          name: TOOL_INSPECTION_TOOL_NAME,
+          arguments: { toolName: 'signal__list_groups', arguments: {} },
+        }),
+      ).resolves.toMatchObject({
+        structuredContent: {
+          toolName: 'signal__list_groups',
+          approvalRequired: true,
+          approvalTimeoutSeconds: 300,
+          toolCallTimeoutSeconds: 1_800,
+        },
       });
       await expect(
         client.callTool({ name: 'signal__list_groups', arguments: {} }),

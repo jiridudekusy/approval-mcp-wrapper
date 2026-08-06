@@ -15,11 +15,14 @@ import {
   buildTokenCatalog,
   type CatalogSourceTool,
   createMcpHttpHandler,
+  evaluateToolInspection,
   PolicyCallCoordinator,
   StateStoreApprovalRepository,
   StateStoreTokenRepository,
   TokenScopedGateway,
   TokenService,
+  type ToolInspection,
+  withPolicyDescription,
 } from '@approval-mcp/gateway';
 import {
   CredentialVault,
@@ -135,58 +138,70 @@ const approvals = new ApprovalOrchestrator(
 );
 await approvals.interruptAll('server.restarted');
 const tokens = new TokenService(new StateStoreTokenRepository(stateStore));
+const timeoutsFor = (clientTokenId: ClientTokenId) => ({
+  approvalTimeoutSeconds: resolveApprovalTimeoutSeconds({
+    clientTokenId,
+    profiles: profiles(),
+    assignments: profileAssignments(),
+  }),
+  toolCallTimeoutSeconds: resolveToolCallTimeoutSeconds({
+    clientTokenId,
+    profiles: profiles(),
+    assignments: profileAssignments(),
+  }),
+});
 const coordinator = new PolicyCallCoordinator({
   policies: (input) =>
     policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
   approvalTimeoutMs: (input) =>
-    resolveApprovalTimeoutSeconds({
-      clientTokenId: input.clientTokenId,
-      profiles: profiles(),
-      assignments: profileAssignments(),
-    }) * 1_000,
+    timeoutsFor(input.clientTokenId).approvalTimeoutSeconds * 1_000,
   toolCallTimeoutMs: (input) =>
-    resolveToolCallTimeoutSeconds({
-      clientTokenId: input.clientTokenId,
-      profiles: profiles(),
-      assignments: profileAssignments(),
-    }) * 1_000,
+    timeoutsFor(input.clientTokenId).toolCallTimeoutSeconds * 1_000,
   grants,
   approvals,
   upstream: upstreams,
   journal,
 });
-const catalogFor = async (tokenId: ClientTokenId) => {
+const sourceToolsFor = async (refreshCatalogs: boolean) => {
   const sourceTools: CatalogSourceTool[] = [];
   for (const upstreamId of upstreams.upstreamIds()) {
+    const configured = configuredUpstreams().find(
+      (candidate) => candidate.id === upstreamId,
+    );
+    if (configured === undefined) continue;
     try {
-      const catalog = await upstreams.refresh(upstreamId);
-      const upstream = configuredUpstreams().find(
-        (candidate) => candidate.id === upstreamId,
-      );
-      if (upstream === undefined) continue;
+      const catalog = refreshCatalogs
+        ? await upstreams.refresh(upstreamId)
+        : upstreams.getCatalog(upstreamId) ?? await upstreams.refresh(upstreamId);
       for (const tool of catalog.tools) {
         sourceTools.push({
           upstreamId,
-          upstreamAlias: upstream.alias,
+          upstreamAlias: configured.alias,
           tool,
         });
       }
     } catch {
       const cached = upstreams.getCatalog(upstreamId);
-      const upstream = configuredUpstreams().find(
-        (candidate) => candidate.id === upstreamId,
-      );
-      if (cached === undefined || upstream === undefined) continue;
+      if (cached === undefined) continue;
       for (const tool of cached.tools) {
         sourceTools.push({
           upstreamId,
-          upstreamAlias: upstream.alias,
+          upstreamAlias: configured.alias,
           tool,
         });
       }
     }
   }
+  return sourceTools;
+};
+const catalogFor = async (
+  tokenId: ClientTokenId,
+  refreshCatalogs = true,
+) => {
+  const sourceTools = await sourceToolsFor(refreshCatalogs);
   const visible = new Set<string>();
+  const approvalByTool = new Map<string, boolean>();
+  const timeouts = timeoutsFor(tokenId);
   for (const source of sourceTools) {
     const resolved = resolveProfileRules({
       clientTokenId: tokenId,
@@ -211,16 +226,55 @@ const catalogFor = async (tokenId: ClientTokenId) => {
       outcomes.length > 0 &&
       !outcomes.includes('deny')
     ) {
-      visible.add(`${source.upstreamAlias}__${source.tool.name}`);
+      const publicName = `${source.upstreamAlias}__${source.tool.name}`;
+      visible.add(publicName);
+      approvalByTool.set(publicName, outcomes.includes('require_approval'));
     }
   }
   return buildTokenCatalog(
     tokenId,
-    sourceTools,
+    sourceTools.map((source) => {
+      const approvalMayBeRequired = approvalByTool.get(
+        `${source.upstreamAlias}__${source.tool.name}`,
+      );
+      return approvalMayBeRequired === undefined
+        ? source
+        : {
+            ...source,
+            tool: withPolicyDescription(source.tool, {
+              approvalMayBeRequired,
+              ...timeouts,
+            }),
+          };
+    }),
     new Map([[tokenId, visible]]),
   );
 };
-const mcpGateway = new TokenScopedGateway({ coordinator, catalogFor });
+const inspectTool = async (
+  tokenId: ClientTokenId,
+  toolName: string,
+  argumentsValue: Record<string, unknown>,
+): Promise<ToolInspection | undefined> => {
+  const tool = (await catalogFor(tokenId, false)).find(
+    (candidate) => candidate.name === toolName,
+  );
+  if (tool === undefined) return undefined;
+  return evaluateToolInspection({
+    publicToolName: toolName,
+    clientTokenId: tokenId,
+    upstreamId: tool.upstreamId,
+    upstreamToolName: tool.upstreamToolName,
+    argumentsValue,
+    policies: policiesFor(tokenId, tool.upstreamId, tool.upstreamToolName),
+    grants: grants(),
+    ...timeoutsFor(tokenId),
+  });
+};
+const mcpGateway = new TokenScopedGateway({
+  coordinator,
+  catalogFor,
+  inspectTool,
+});
 const mcpHandler = createMcpHttpHandler({
   allowedOrigins: [config.expectedOrigin],
   authenticate: async (plaintext) =>

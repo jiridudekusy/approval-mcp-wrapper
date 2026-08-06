@@ -1,4 +1,5 @@
 import type { ClientTokenId } from '@approval-mcp/contracts';
+import type { McpTool } from '@approval-mcp/upstream';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
@@ -11,6 +12,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { PublicTool } from './catalog.js';
 import type { CallCoordinator } from './call-coordinator.js';
+import {
+  parseToolInspectionInput,
+  TOOL_INSPECTION_TOOL,
+  TOOL_INSPECTION_TOOL_NAME,
+  toolInspectionResult,
+  type ToolInspection,
+} from './tool-inspection.js';
 
 export class GatewayError extends Error {
   constructor(
@@ -36,6 +44,11 @@ interface TokenScopedGatewayOptions {
   catalogFor(
     tokenId: ClientTokenId,
   ): readonly PublicTool[] | Promise<readonly PublicTool[]>;
+  inspectTool?(
+    tokenId: ClientTokenId,
+    toolName: string,
+    argumentsValue: Record<string, unknown>,
+  ): ToolInspection | undefined | Promise<ToolInspection | undefined>;
 }
 
 export class TokenScopedGateway {
@@ -43,14 +56,21 @@ export class TokenScopedGateway {
   readonly #catalogFor: (
     tokenId: ClientTokenId,
   ) => readonly PublicTool[] | Promise<readonly PublicTool[]>;
+  readonly #inspectTool: TokenScopedGatewayOptions['inspectTool'];
 
   constructor(options: TokenScopedGatewayOptions) {
     this.#coordinator = options.coordinator;
     this.#catalogFor = options.catalogFor;
+    this.#inspectTool = options.inspectTool;
   }
 
-  async listTools(tokenId: ClientTokenId): Promise<readonly PublicTool[]> {
-    return this.#catalogFor(tokenId);
+  async listTools(tokenId: ClientTokenId): Promise<readonly McpTool[]> {
+    const catalog = await this.#catalogFor(tokenId);
+    if (this.#inspectTool === undefined) return catalog;
+    if (catalog.some((tool) => tool.name === TOOL_INSPECTION_TOOL_NAME)) {
+      throw new Error(`Public tool name is reserved: ${TOOL_INSPECTION_TOOL_NAME}`);
+    }
+    return [TOOL_INSPECTION_TOOL, ...catalog];
   }
 
   async call(
@@ -59,6 +79,27 @@ export class TokenScopedGateway {
     argumentsValue: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<CallToolResult> {
+    if (
+      publicName === TOOL_INSPECTION_TOOL_NAME &&
+      this.#inspectTool !== undefined
+    ) {
+      const input = parseToolInspectionInput(argumentsValue);
+      if (input === undefined) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: 'Invalid tool inspection input' }],
+        };
+      }
+      const inspection = await this.#inspectTool(
+        tokenId,
+        input.toolName,
+        input.arguments,
+      );
+      if (inspection === undefined) {
+        throw new GatewayError('tool_not_found', 'Tool not found');
+      }
+      return toolInspectionResult(inspection);
+    }
     const tool = (await this.#catalogFor(tokenId)).find(
       (candidate) => candidate.name === publicName,
     );
@@ -143,6 +184,9 @@ export function createMcpHttpHandler(
                   required?: string[];
                 },
               }),
+          ...(tool.annotations === undefined
+            ? {}
+            : { annotations: tool.annotations }),
         })),
       }));
       server.setRequestHandler(CallToolRequestSchema, async (mcpRequest, extra) => {
