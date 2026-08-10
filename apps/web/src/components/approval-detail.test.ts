@@ -37,6 +37,8 @@ describe('ApprovalDetail', () => {
     );
 
     expect(html).toContain('Deny');
+    expect(html).toContain('Reason for denial (optional)');
+    expect(html).toContain('<textarea');
     expect(html).toContain('Allow once');
     expect(html).not.toContain('Allow for 1 hour');
     expect(html).not.toContain('Always allow');

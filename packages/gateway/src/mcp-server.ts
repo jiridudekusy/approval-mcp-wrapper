@@ -11,7 +11,10 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { PublicTool } from './catalog.js';
-import type { CallCoordinator } from './call-coordinator.js';
+import {
+  PolicyDeniedError,
+  type CallCoordinator,
+} from './call-coordinator.js';
 import {
   parseToolInspectionInput,
   TOOL_INSPECTION_TOOL,
@@ -199,6 +202,12 @@ export function createMcpHttpHandler(
             signal,
           );
         } catch (error) {
+          if (error instanceof PolicyDeniedError) {
+            return {
+              isError: true,
+              content: [{ type: 'text', text: error.message }],
+            };
+          }
           if (
             error instanceof GatewayError &&
             error.code === 'tool_not_found'

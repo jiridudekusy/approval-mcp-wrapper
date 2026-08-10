@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { MAX_DENIAL_REASON_LENGTH } from '@approval-mcp/contracts';
 import type {
   AdminId,
   Approval,
@@ -215,6 +216,13 @@ export class ApprovalOrchestrator {
         };
       }
       if (decision.action === 'deny') {
+        const denialReason = decision.reason?.trim();
+        if (
+          denialReason !== undefined &&
+          denialReason.length > MAX_DENIAL_REASON_LENGTH
+        ) {
+          throw new ApprovalConflictError('Denial reason is too long');
+        }
         return {
           ...current,
           request: terminalRequest(current.request),
@@ -222,6 +230,9 @@ export class ApprovalOrchestrator {
             ...current.approval,
             status: 'denied',
             reasonCode: 'approval.denied',
+            ...(denialReason === undefined || denialReason.length === 0
+              ? {}
+              : { denialReason }),
             decidedAt: now,
             decidedBy: actor,
             updatedAt: now,

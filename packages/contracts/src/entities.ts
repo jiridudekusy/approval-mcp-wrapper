@@ -129,6 +129,7 @@ export interface Approval extends VersionedRecord {
   requestHash: string;
   status: ApprovalStatus;
   reasonCode: string;
+  denialReason?: string;
   decidedAt?: string;
   decidedBy?: AdminId;
 }

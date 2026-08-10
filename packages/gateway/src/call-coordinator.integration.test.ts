@@ -1,5 +1,7 @@
 import type { CallEvent } from '@approval-mcp/call-journal';
 import type {
+  ApprovalId,
+  CallId,
   ClientTokenId,
   Policy,
   PolicyId,
@@ -246,5 +248,68 @@ describe('PolicyCallCoordinator', () => {
         presentation: expect.objectContaining({ pluginId: 'minutes' }),
       }),
     );
+  });
+
+  it('journals a human denial reason and returns it to the caller', async () => {
+    const events: CallEvent[] = [];
+    const upstream = { call: vi.fn() };
+    const now = new Date('2026-08-10T12:00:00.000Z');
+    const policy: Policy = {
+      id: 'policy-approval' as PolicyId,
+      clientTokenId: 'token-1' as ClientTokenId,
+      upstreamId: 'upstream-1' as UpstreamId,
+      toolName: 'send_message',
+      outcome: 'require_approval',
+      predicates: [],
+      enabled: true,
+      schemaVersion: 1,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      version: 1,
+    };
+    const coordinator = new PolicyCallCoordinator({
+      policies: () => [policy],
+      grants: () => [],
+      approvals: {
+        request: vi.fn().mockResolvedValue({
+          status: 'denied',
+          approval: {
+            id: 'approval-1' as ApprovalId,
+            callId: 'call-1' as CallId,
+            requestHash: 'request-hash',
+            status: 'denied',
+            reasonCode: 'approval.denied',
+            denialReason: 'The recipient has not consented.',
+            schemaVersion: 1,
+            createdAt: now.toISOString(),
+            updatedAt: now.toISOString(),
+            version: 2,
+          },
+        }),
+      },
+      upstream,
+      journal: { append: async (event) => void events.push(event) },
+      now: () => now,
+    });
+
+    await expect(
+      coordinator.call(
+        {
+          clientTokenId: policy.clientTokenId,
+          upstreamId: policy.upstreamId,
+          toolName: policy.toolName,
+          arguments: { text: 'hello' },
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Tool call denied: The recipient has not consented.');
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'approval.decided',
+        denialReason: 'The recipient has not consented.',
+      }),
+    );
+    expect(upstream.call).not.toHaveBeenCalled();
   });
 });

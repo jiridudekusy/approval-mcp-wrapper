@@ -26,6 +26,7 @@ export interface CallEvent {
   finalStatus?: 'abandoned' | 'denied' | 'error' | 'interrupted' | 'success' | 'timeout';
   latencyMs?: number;
   reasonCode?: string;
+  denialReason?: string;
 }
 
 export interface CallFilter {
@@ -59,6 +60,7 @@ export interface CallSummary {
   policyOutcome?: CallEvent['policyOutcome'];
   approvalStatus?: string;
   finalStatus?: CallEvent['finalStatus'];
+  denialReason?: string;
 }
 
 export interface CallPage {

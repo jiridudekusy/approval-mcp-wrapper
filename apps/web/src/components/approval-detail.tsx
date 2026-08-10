@@ -11,6 +11,8 @@ import {
   localizedMessage,
 } from './call-presentation.js';
 
+const MAX_DENIAL_REASON_LENGTH = 2_000;
+
 export function ApprovalDetail({
   approval,
   csrfToken,
@@ -33,6 +35,7 @@ export function ApprovalDetail({
   });
   const [error, setError] = useState(false);
   const [conditionOpen, setConditionOpen] = useState(false);
+  const [denialReason, setDenialReason] = useState('');
   const [selectedScopeId, setSelectedScopeId] = useState(
     approval.presentation?.proposedScopes[0]?.id,
   );
@@ -55,7 +58,7 @@ export function ApprovalDetail({
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClosed();
       if (event.key !== 'Tab' || !panelRef.current) return;
-      const controls = [...panelRef.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled)')];
+      const controls = [...panelRef.current.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')];
       if (controls.length === 0) return;
       const first = controls[0]; const last = controls.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -67,7 +70,7 @@ export function ApprovalDetail({
 
   async function decide(
     decision:
-      | { action: 'deny' }
+      | { action: 'deny'; reason?: string }
       | { action: 'allow_once' }
       | { action: 'allow_until'; expiresAt: string; predicate?: Predicate; scopeId?: string }
       | { action: 'allow_forever'; predicate?: Predicate; scopeId?: string },
@@ -123,13 +126,32 @@ export function ApprovalDetail({
         </fieldset>
       ) : !hasPluginPresentation ? <><button className="condition-toggle" type="button" aria-expanded={conditionOpen} onClick={() => setConditionOpen((value) => !value)}><Icon name={conditionOpen ? 'chevron-down' : 'chevron-right'} />{t('approval.addCondition')}</button>{conditionOpen && <GrantScopeForm predicate={predicate} onChange={setPredicate} />}</> : <p className="permanent-note">{t('approval.noReusableScope')}</p>}
       {allowsForever && <><label className="confirm"><input type="checkbox" checked={permanent} onChange={(event) => setPermanent(event.target.checked)} />{t('approval.confirmForever')}</label><p className="permanent-note">{t('approval.foreverWarning')}</p></>}
+      <label className="denial-reason">
+        <span>{t('approval.denialReason')}</span>
+        <textarea
+          value={denialReason}
+          maxLength={MAX_DENIAL_REASON_LENGTH}
+          rows={3}
+          disabled={busy}
+          placeholder={t('approval.denialReasonPlaceholder')}
+          onChange={(event) => setDenialReason(event.target.value)}
+        />
+        <small>{t('approval.denialReasonHint')}</small>
+      </label>
       {error && <p className="error-inline" role="alert">{t('approval.failed')}</p>}
       <div className="decision-actions">
         <button
           type="button"
           className="danger"
           disabled={busy}
-          onClick={() => void decide({ action: 'deny' })}
+          onClick={() => {
+            const reason = denialReason.trim();
+            void decide(
+              reason.length === 0
+                ? { action: 'deny' }
+                : { action: 'deny', reason },
+            );
+          }}
         >
           {t('approval.deny')}
         </button>

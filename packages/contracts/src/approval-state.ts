@@ -14,7 +14,7 @@ import type {
 import type { CallPresentation } from './presentation.js';
 
 export type ApprovalDecision =
-  | { action: 'deny' }
+  | { action: 'deny'; reason?: string }
   | { action: 'allow_once' }
   | {
       action: 'allow_until';
@@ -51,3 +51,5 @@ export interface ApprovalDecisionInput {
   actor: AdminId;
   expectedRequestHash: string;
 }
+
+export const MAX_DENIAL_REASON_LENGTH = 2_000;

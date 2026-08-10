@@ -16,6 +16,7 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import {
   buildTokenCatalog,
   GatewayError,
+  PolicyDeniedError,
   TokenScopedGateway,
   validateOrigin,
   createMcpHttpHandler,
@@ -244,8 +245,14 @@ describe('validateOrigin', () => {
 describe('Streamable HTTP MCP integration', () => {
   it('authenticates, lists a scoped catalog, and hands off a tool call', async () => {
     const coordinator = {
-      call: vi.fn().mockResolvedValue({
-        content: [{ type: 'text', text: 'ok' }],
+      call: vi.fn(async (input: { arguments: Record<string, unknown> }) => {
+        if (input.arguments['denied'] === true) {
+          throw new PolicyDeniedError(
+            'approval.denied',
+            'The selected conversation is private.',
+          );
+        }
+        return { content: [{ type: 'text' as const, text: 'ok' }] };
       }),
     };
     const gateway = new TokenScopedGateway({
@@ -322,7 +329,21 @@ describe('Streamable HTTP MCP integration', () => {
       ).resolves.toMatchObject({
         content: [{ type: 'text', text: 'ok' }],
       });
-      expect(coordinator.call).toHaveBeenCalledTimes(1);
+      await expect(
+        client.callTool({
+          name: 'signal__list_groups',
+          arguments: { denied: true },
+        }),
+      ).resolves.toMatchObject({
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: 'Tool call denied: The selected conversation is private.',
+          },
+        ],
+      });
+      expect(coordinator.call).toHaveBeenCalledTimes(2);
     } finally {
       await client.close();
       await new Promise<void>((resolve, reject) =>

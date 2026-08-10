@@ -123,6 +123,9 @@ function summarize(events: CallEvent[]): CallSummary {
     if (event.finalStatus !== undefined) {
       summary.finalStatus = event.finalStatus;
     }
+    if (event.denialReason !== undefined) {
+      summary.denialReason = event.denialReason;
+    }
   }
   return summary;
 }
@@ -225,6 +228,7 @@ class FileCallJournal implements CallJournal {
         'toolName',
         'payload',
         'presentation',
+        'denialReason',
         ...(displayNames === undefined
           ? []
           : ['tokenLabel', 'upstreamAlias']),
@@ -254,6 +258,7 @@ class FileCallJournal implements CallJournal {
             event.presentation === undefined
               ? ''
               : JSON.stringify(event.presentation),
+            event.denialReason ?? '',
             ...(displayNames === undefined
               ? []
               : [names?.tokenLabel ?? '', names?.upstreamAlias ?? '']),

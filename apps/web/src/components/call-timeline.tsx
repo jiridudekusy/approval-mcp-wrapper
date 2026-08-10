@@ -17,6 +17,7 @@ interface TimelineEvent {
   latencyMs?: number;
   payload?: unknown;
   presentation?: CallPresentationView;
+  denialReason?: string;
 }
 
 interface TimelineResult {
@@ -64,7 +65,7 @@ export function CallTimeline({
           {timeline.events.map((event) => (
             <li key={event.eventId}>
               <i />
-              <div><strong>{event.type}</strong><time>{formatDate(event.timestamp)}</time>{event.reasonCode && <p>{event.reasonCode}</p>}{event.latencyMs !== undefined && <small>{formatNumber(event.latencyMs)} ms</small>}{event.payload !== undefined && <pre>{JSON.stringify(event.payload, null, 2)}</pre>}</div>
+              <div><strong>{event.type}</strong><time>{formatDate(event.timestamp)}</time>{event.reasonCode && <p>{event.reasonCode}</p>}{event.denialReason && <p className="timeline-denial-reason"><strong>{t('history.denialReason')}:</strong> {event.denialReason}</p>}{event.latencyMs !== undefined && <small>{formatNumber(event.latencyMs)} ms</small>}{event.payload !== undefined && <pre>{JSON.stringify(event.payload, null, 2)}</pre>}</div>
             </li>
           ))}
         </ol>

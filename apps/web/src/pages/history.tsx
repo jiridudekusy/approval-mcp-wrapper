@@ -24,6 +24,7 @@ interface CallSummary {
   >;
   policyOutcome?: string;
   finalStatus?: 'abandoned' | 'denied' | 'error' | 'interrupted' | 'success' | 'timeout';
+  denialReason?: string;
 }
 
 export function History() {
@@ -84,7 +85,7 @@ export function History() {
             <p>{hasFilters ? t('history.emptyFilteredDetail') : t('history.emptyDefaultDetail')}</p>
           </div>
         )}
-        {items.map((item) => { const status = statusView(item.finalStatus); return <button key={item.callId} onClick={() => setSelected(item.callId)}><span className={`status-dot ${status.tone}`} /><div><strong>{item.presentation === undefined ? item.toolName : localizedMessage(item.presentation.title, locale)}</strong><small>{t('approval.agent')}: {item.tokenLabel ?? t('common.unknownAgent')} · {t('approval.upstream')}: {item.upstreamAlias ?? t('common.unknownUpstream')}</small></div><span className={`outcome ${item.policyOutcome ?? ''}`}>{outcomeLabel(item.policyOutcome)}</span><span className="history-status">{status.label}</span><time>{formatDate(item.lastSeenAt)}</time></button>; })}
+        {items.map((item) => { const status = statusView(item.finalStatus); return <button key={item.callId} onClick={() => setSelected(item.callId)}><span className={`status-dot ${status.tone}`} /><div><strong>{item.presentation === undefined ? item.toolName : localizedMessage(item.presentation.title, locale)}</strong><small>{t('approval.agent')}: {item.tokenLabel ?? t('common.unknownAgent')} · {t('approval.upstream')}: {item.upstreamAlias ?? t('common.unknownUpstream')}</small>{item.denialReason && <small className="history-denial-reason">{t('history.denialReason')}: {item.denialReason}</small>}</div><span className={`outcome ${item.policyOutcome ?? ''}`}>{outcomeLabel(item.policyOutcome)}</span><span className="history-status">{status.label}</span><time>{formatDate(item.lastSeenAt)}</time></button>; })}
       </div>
       {cursor && <button className="load-more" onClick={() => void more()}>{t('history.loadMore')}</button>}
       {selected && <CallTimeline callId={selected} revision={revision} onClose={() => setSelected(undefined)} />}

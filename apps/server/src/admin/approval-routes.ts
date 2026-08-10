@@ -3,6 +3,7 @@ import type {
   ApprovalDecision,
   ApprovalId,
 } from '@approval-mcp/contracts';
+import { MAX_DENIAL_REASON_LENGTH } from '@approval-mcp/contracts';
 import type {
   ApprovalOrchestrator,
   ApprovalRecord,
@@ -14,6 +15,34 @@ import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
 import { entityDisplayNames } from './entity-display-names.js';
 import type { ApprovalEventBroker } from './sse-broker.js';
+
+export function parseApprovalDecision(value: unknown): ApprovalDecision | undefined {
+  if (typeof value !== 'object' || value === null || !('action' in value)) {
+    return undefined;
+  }
+  const decision = value as Record<string, unknown>;
+  if (decision['action'] === 'deny') {
+    if (
+      decision['reason'] !== undefined &&
+      (typeof decision['reason'] !== 'string' ||
+        decision['reason'].length > MAX_DENIAL_REASON_LENGTH)
+    ) {
+      return undefined;
+    }
+    const reason =
+      typeof decision['reason'] === 'string'
+        ? decision['reason'].trim()
+        : undefined;
+    return reason === undefined || reason.length === 0
+      ? { action: 'deny' }
+      : { action: 'deny', reason };
+  }
+  return ['allow_once', 'allow_until', 'allow_forever'].includes(
+    String(decision['action']),
+  )
+    ? (value as ApprovalDecision)
+    : undefined;
+}
 
 export function openSseResponse(response: {
   writeHead(
@@ -64,22 +93,21 @@ export async function registerApprovalRoutes(
     if (options.approvals === undefined) throw new Error('Approval service unavailable');
     const { id } = request.params as { id: string };
     const body = request.body as {
-      decision?: ApprovalDecision;
+      decision?: unknown;
       requestHash?: unknown;
     };
+    const decision = parseApprovalDecision(body.decision);
     if (
-      body.decision === undefined ||
+      decision === undefined ||
       typeof body.requestHash !== 'string' ||
-      !['deny', 'allow_once', 'allow_until', 'allow_forever'].includes(
-        body.decision.action,
-      )
+      body.requestHash.length === 0
     ) {
       reply.code(400);
       return { error: { code: 'input.invalid', message: 'Invalid approval decision', requestId: request.id } };
     }
     const approval = await options.approvals.decide(
       id as ApprovalId,
-      body.decision,
+      decision,
       session.adminId as AdminId,
       body.requestHash,
     );

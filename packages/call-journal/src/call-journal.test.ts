@@ -136,10 +136,37 @@ describe('CallJournal', () => {
       '"tokenLabel":"Claude Code","upstreamAlias":"Signal"',
     );
     expect(Buffer.concat(enrichedCsvChunks).toString('utf8')).toContain(
-      'clientTokenId,upstreamId,toolName,payload,presentation,tokenLabel,upstreamAlias',
+      'clientTokenId,upstreamId,toolName,payload,presentation,denialReason,tokenLabel,upstreamAlias',
     );
     expect(Buffer.concat(enrichedCsvChunks).toString('utf8')).toContain(
       '"Claude Code","Signal"',
+    );
+  });
+
+  it('keeps a human denial reason in history summaries and exports', async () => {
+    const dataDir = await tempDataDir();
+    const journal = await createCallJournal(dataDir);
+    await journal.append(event());
+    await journal.append(
+      event({
+        eventId: 'event-2',
+        type: 'approval.decided',
+        approvalStatus: 'denied',
+        denialReason: 'The recipient has not consented.',
+      }),
+    );
+
+    await expect(journal.query({})).resolves.toMatchObject({
+      items: [
+        {
+          denialReason: 'The recipient has not consented.',
+        },
+      ],
+    });
+    const csv: Uint8Array[] = [];
+    for await (const chunk of journal.export({}, 'csv')) csv.push(chunk);
+    expect(Buffer.concat(csv).toString('utf8')).toContain(
+      'The recipient has not consented.',
     );
   });
 

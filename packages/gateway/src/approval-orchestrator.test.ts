@@ -166,10 +166,21 @@ describe('ApprovalOrchestrator', () => {
     const orchestrator = new ApprovalOrchestrator(repository);
     const waiting = orchestrator.request(input(), new AbortController().signal);
     const id = await pendingId(repository);
-    await orchestrator.decide(id, { action: 'deny' }, actor, 'hash-call-1');
+    await orchestrator.decide(
+      id,
+      { action: 'deny', reason: '  This would notify the wrong group.  ' },
+      actor,
+      'hash-call-1',
+    );
 
-    await expect(waiting).resolves.toMatchObject({ status: 'denied' });
+    await expect(waiting).resolves.toMatchObject({
+      status: 'denied',
+      approval: {
+        denialReason: 'This would notify the wrong group.',
+      },
+    });
     await expect(repository.find(id)).resolves.toMatchObject({
+      approval: { denialReason: 'This would notify the wrong group.' },
       request: { context: {} },
     });
     expect((await repository.find(id))?.request).not.toHaveProperty(

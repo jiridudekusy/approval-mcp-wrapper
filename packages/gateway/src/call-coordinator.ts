@@ -80,8 +80,15 @@ interface PolicyCallCoordinatorOptions {
 }
 
 export class PolicyDeniedError extends Error {
-  constructor(readonly reasonCode: string) {
-    super('Tool call denied');
+  constructor(
+    readonly reasonCode: string,
+    readonly denialReason?: string,
+  ) {
+    super(
+      denialReason === undefined
+        ? 'Tool call denied'
+        : `Tool call denied: ${denialReason}`,
+    );
     this.name = 'PolicyDeniedError';
   }
 }
@@ -179,6 +186,10 @@ export class PolicyCallCoordinator implements CallCoordinator {
       );
       await this.#append(input, callId, 'approval.decided', {
         approvalStatus: outcome.status,
+        ...(outcome.status === 'denied' &&
+        outcome.approval.denialReason !== undefined
+          ? { denialReason: outcome.approval.denialReason }
+          : {}),
       });
       if (outcome.status !== 'approved') {
         const finalStatus =
@@ -196,7 +207,12 @@ export class PolicyCallCoordinator implements CallCoordinator {
           startedAt,
           outcome.approval.reasonCode,
         );
-        throw new PolicyDeniedError(outcome.approval.reasonCode);
+        throw new PolicyDeniedError(
+          outcome.approval.reasonCode,
+          outcome.status === 'denied'
+            ? outcome.approval.denialReason
+            : undefined,
+        );
       }
     }
 
