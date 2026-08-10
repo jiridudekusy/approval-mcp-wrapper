@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { ApprovalEventBroker } from './sse-broker.js';
+import {
+  ApprovalEventBroker,
+  HistoryEventBroker,
+} from './sse-broker.js';
 
 describe('ApprovalEventBroker', () => {
   it('replays events after Last-Event-ID and cleans up subscribers', () => {
@@ -14,6 +17,44 @@ describe('ApprovalEventBroker', () => {
     expect(broker.subscriberCount).toBe(1);
 
     subscription.close();
+    expect(broker.subscriberCount).toBe(0);
+  });
+});
+
+describe('HistoryEventBroker', () => {
+  it('replays events after Last-Event-ID and cleans up subscribers', () => {
+    const broker = new HistoryEventBroker(10);
+    broker.publish({
+      callId: 'c1',
+      timestamp: '2026-08-10T10:00:00.000Z',
+      type: 'call.received',
+    });
+    const second = broker.publish({
+      callId: 'c1',
+      timestamp: '2026-08-10T10:00:01.000Z',
+      type: 'policy.decided',
+    });
+    const listener = vi.fn();
+
+    const subscription = broker.subscribe('1', listener);
+    expect(listener).toHaveBeenCalledWith(second);
+    expect(broker.subscriberCount).toBe(1);
+
+    subscription.close();
+    expect(broker.subscriberCount).toBe(0);
+  });
+
+  it('drops a broken subscriber without interrupting publishers', () => {
+    const broker = new HistoryEventBroker();
+    broker.subscribe(undefined, () => {
+      throw new Error('connection closed');
+    });
+
+    expect(() => broker.publish({
+      callId: 'c1',
+      timestamp: '2026-08-10T10:00:00.000Z',
+      type: 'call.received',
+    })).not.toThrow();
     expect(broker.subscriberCount).toBe(0);
   });
 });

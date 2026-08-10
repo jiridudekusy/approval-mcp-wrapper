@@ -750,6 +750,124 @@ pre,
   font: 12.5px/1.65 'Roboto Mono', monospace;
 }
 
+.plugin-presentation {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.plugin-section {
+  border: 1px solid var(--line-soft);
+  border-left: 4px solid var(--primary);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.plugin-section.warning {
+  border-left-color: var(--warning);
+}
+
+.plugin-section.danger {
+  border-left-color: var(--negative);
+}
+
+.plugin-section header {
+  align-items: center;
+}
+
+.plugin-section h3 {
+  margin: 0;
+}
+
+.plugin-section dl {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 0;
+}
+
+.plugin-section dl > div {
+  display: grid;
+  gap: 4px;
+}
+
+.plugin-section dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.plugin-section dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-section pre {
+  margin: 0;
+}
+
+.risk-badge {
+  border-radius: 999px;
+  background: var(--primary-soft);
+  padding: 4px 8px;
+  color: var(--primary-text);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.risk-badge.warning {
+  background: var(--warn-soft);
+  color: var(--warning);
+}
+
+.risk-badge.danger {
+  background: var(--neg-soft);
+  color: var(--negative);
+}
+
+.entity-value {
+  display: grid;
+  gap: 3px;
+}
+
+.entity-value code {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.entity-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.presentation-value {
+  white-space: pre-wrap;
+}
+
+.scope-options {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.scope-options legend {
+  padding: 0 6px;
+  font-weight: 650;
+}
+
+.scope-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .connection-warning,
 .error-inline {
   border: 1px solid rgb(194 65 12 / 0.2);
@@ -1733,8 +1851,20 @@ pre,
   font-weight: 650;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
+}
+
+.field small {
+  color: var(--muted);
+}
+
+.grant-human-scope {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--fg-strong);
+  font-weight: 650;
 }
 
 .field-wide {

@@ -1,3 +1,5 @@
+import type { CallPresentationView } from './call-presentation.js';
+
 export interface ApprovalApiRecord {
   tokenLabel?: string;
   upstreamAlias?: string;
@@ -14,6 +16,7 @@ export interface ApprovalApiRecord {
     toolName: string;
     context: unknown;
     expiresAt: string;
+    presentation?: CallPresentationView;
   };
 }
 
@@ -26,6 +29,7 @@ export interface ApprovalViewModel {
   arguments: unknown;
   createdAt: string;
   expiresAt: string;
+  presentation?: CallPresentationView;
 }
 
 export function approvalViewModel(
@@ -45,5 +49,8 @@ export function approvalViewModel(
     arguments: record.request.context,
     createdAt: record.approval.createdAt,
     expiresAt: record.request.expiresAt,
+    ...(record.request.presentation === undefined
+      ? {}
+      : { presentation: record.request.presentation }),
   };
 }

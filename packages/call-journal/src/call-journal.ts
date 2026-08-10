@@ -31,6 +31,8 @@ export interface CallJournal {
   enforceRetention(now: Date, retentionDays: number): Promise<RetentionResult>;
 }
 
+export type CallEventAppendedListener = (event: CallEvent) => void;
+
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
@@ -96,6 +98,20 @@ function summarize(events: CallEvent[]): CallSummary {
     clientTokenId: first.clientTokenId,
     upstreamId: first.upstreamId,
     toolName: first.toolName,
+    ...(first.presentation === undefined
+      ? {}
+      : {
+          presentation: {
+            source: first.presentation.source,
+            ...(first.presentation.pluginId === undefined
+              ? {}
+              : { pluginId: first.presentation.pluginId }),
+            ...(first.presentation.pluginVersion === undefined
+              ? {}
+              : { pluginVersion: first.presentation.pluginVersion }),
+            title: structuredClone(first.presentation.title),
+          },
+        }),
   };
   for (const event of events) {
     if (event.policyOutcome !== undefined) {
@@ -114,7 +130,10 @@ function summarize(events: CallEvent[]): CallSummary {
 class FileCallJournal implements CallJournal {
   public readonly recovery: JournalRecovery = { truncatedLines: 0 };
 
-  public constructor(private readonly dataDir: string) {}
+  public constructor(
+    private readonly dataDir: string,
+    private readonly onEventAppended?: CallEventAppendedListener,
+  ) {}
 
   public async load(): Promise<void> {
     await mkdir(this.dataDir, { recursive: true, mode: 0o700 });
@@ -130,6 +149,7 @@ class FileCallJournal implements CallJournal {
     const indexPath = path.replace(/\.jsonl$/, '.index.jsonl');
     const record = indexRecord(event, offset, Buffer.byteLength(serialized));
     await appendDurable(indexPath, `${JSON.stringify(record)}\n`);
+    this.onEventAppended?.(structuredClone(event));
   }
 
   public async compressClosedSegments(now: Date): Promise<string[]> {
@@ -203,6 +223,8 @@ class FileCallJournal implements CallJournal {
         'clientTokenId',
         'upstreamId',
         'toolName',
+        'payload',
+        'presentation',
         ...(displayNames === undefined
           ? []
           : ['tokenLabel', 'upstreamAlias']),
@@ -228,6 +250,10 @@ class FileCallJournal implements CallJournal {
             event.clientTokenId,
             event.upstreamId,
             event.toolName,
+            event.payload === undefined ? '' : JSON.stringify(event.payload),
+            event.presentation === undefined
+              ? ''
+              : JSON.stringify(event.presentation),
             ...(displayNames === undefined
               ? []
               : [names?.tokenLabel ?? '', names?.upstreamAlias ?? '']),
@@ -324,8 +350,11 @@ class FileCallJournal implements CallJournal {
   }
 }
 
-export async function createCallJournal(dataDir: string): Promise<CallJournal> {
-  const journal = new FileCallJournal(dataDir);
+export async function createCallJournal(
+  dataDir: string,
+  onEventAppended?: CallEventAppendedListener,
+): Promise<CallJournal> {
+  const journal = new FileCallJournal(dataDir, onEventAppended);
   await journal.load();
   return journal;
 }

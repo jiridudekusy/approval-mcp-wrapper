@@ -1,0 +1,12 @@
+{
+  "agent": "codex",
+  "runtime": "container",
+  "memory": "4g",
+  "cpus": "4",
+  "flags": {
+    "sudo": true,
+    "host-open": true,
+    "clipboard": true,
+    "node-modules": 4
+  }
+}

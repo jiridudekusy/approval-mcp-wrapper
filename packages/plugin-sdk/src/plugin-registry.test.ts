@@ -6,6 +6,7 @@ import { validatePluginDescription } from './validate-output.js';
 import type { ApprovalPlugin, PluginCallInput } from './contracts.js';
 
 const input: PluginCallInput = {
+  upstreamId: 'signal-id',
   upstreamAlias: 'signal',
   toolName: 'send_message',
   toolDescription: 'Send a message',

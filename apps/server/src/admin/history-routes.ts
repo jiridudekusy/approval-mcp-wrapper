@@ -7,6 +7,8 @@ import type { FastifyInstance } from 'fastify';
 import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
 import { entityDisplayNames } from './entity-display-names.js';
+import { openSseResponse } from './approval-routes.js';
+import type { HistoryEventBroker } from './sse-broker.js';
 
 function filter(query: Record<string, unknown>): CallFilter {
   const result: CallFilter = {};
@@ -34,6 +36,7 @@ export async function registerHistoryRoutes(
     sessions: SessionService;
     state: ConfigStateStore;
     journal?: CallJournal;
+    historyBroker: HistoryEventBroker;
   },
 ): Promise<void> {
   app.get('/api/admin/history', async (request, reply) => {
@@ -103,5 +106,29 @@ export async function registerHistoryRoutes(
       if (!reply.raw.write(chunk)) await once(reply.raw, 'drain');
     }
     reply.raw.end();
+  });
+
+  app.get('/api/admin/history/events', async (request, reply) => {
+    if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
+    reply.hijack();
+    const response = reply.raw;
+    openSseResponse(response);
+    const write = (event: { id: string; data: unknown }) => {
+      response.write(`id: ${event.id}\ndata: ${JSON.stringify(event.data)}\n\n`);
+    };
+    const lastEventId =
+      typeof request.headers['last-event-id'] === 'string'
+        ? request.headers['last-event-id']
+        : typeof (request.query as { lastEventId?: unknown }).lastEventId ===
+            'string'
+          ? (request.query as { lastEventId: string }).lastEventId
+          : undefined;
+    const subscription = options.historyBroker.subscribe(lastEventId, write);
+    const heartbeat = setInterval(() => response.write(': heartbeat\n\n'), 20_000);
+    heartbeat.unref();
+    request.raw.once('close', () => {
+      clearInterval(heartbeat);
+      subscription.close();
+    });
   });
 }

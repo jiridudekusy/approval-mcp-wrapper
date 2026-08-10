@@ -1,35 +1,22 @@
-import type { JsonPrimitive, JsonValue, Predicate } from '@approval-mcp/contracts';
+import type {
+  ApprovalSection,
+  JsonPrimitive,
+  JsonValue,
+  LocalizedMessage,
+  ProposedGrantScope,
+  SupportedLocale,
+} from '@approval-mcp/contracts';
 
-export type SupportedLocale = 'cs' | 'en';
-
-export interface LocalizedMessage {
-  key: string;
-  params?: Readonly<Record<string, JsonPrimitive>>;
-  fallback: {
-    en: string;
-    cs?: string;
-  };
-}
-
-export interface ApprovalField {
-  label: LocalizedMessage;
-  value: JsonValue;
-}
-
-export interface ApprovalSection {
-  id: string;
-  heading: LocalizedMessage;
-  fields: readonly ApprovalField[];
-  risk?: 'danger' | 'info' | 'warning';
-}
-
-export interface ProposedGrantScope {
-  id: string;
-  label: LocalizedMessage;
-  predicates: readonly Predicate[];
-}
+export type {
+  ApprovalField,
+  ApprovalSection,
+  LocalizedMessage,
+  ProposedGrantScope,
+  SupportedLocale,
+} from '@approval-mcp/contracts';
 
 export interface PluginCallInput {
+  upstreamId: string;
   upstreamAlias: string;
   toolName: string;
   toolDescription?: string;

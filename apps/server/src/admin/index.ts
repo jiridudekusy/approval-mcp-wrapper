@@ -15,7 +15,10 @@ import { registerPolicyRoutes } from './policy-routes.js';
 import { registerProfileRoutes } from './profile-routes.js';
 import { registerSystemRoutes } from './system-routes.js';
 import { registerUpstreamRoutes } from './upstream-routes.js';
-import { ApprovalEventBroker } from './sse-broker.js';
+import {
+  ApprovalEventBroker,
+  HistoryEventBroker,
+} from './sse-broker.js';
 
 export interface AdminRouteOptions {
   sessions: SessionService;
@@ -25,6 +28,12 @@ export interface AdminRouteOptions {
   approvals?: ApprovalOrchestrator;
   journal?: CallJournal;
   broker?: ApprovalEventBroker;
+  historyBroker?: HistoryEventBroker;
+  plugins?: readonly Readonly<{
+    id: string;
+    version: string;
+    normalizationVersion: number;
+  }>[];
   onUpstreamsChanged?(): Promise<void>;
   discoverTools?(upstreamId: UpstreamId): Promise<ToolCatalog>;
 }
@@ -42,7 +51,10 @@ export async function registerAdminRoutes(
     ...options,
     broker: options.broker ?? new ApprovalEventBroker(),
   });
-  await registerHistoryRoutes(app, options);
+  await registerHistoryRoutes(app, {
+    ...options,
+    historyBroker: options.historyBroker ?? new HistoryEventBroker(),
+  });
   await registerSystemRoutes(app, options);
 }
 

@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { redact, type CallEvent } from '@approval-mcp/call-journal';
 import type {
   ApprovalOutcome,
+  ApprovalRequestInput,
   CallId,
+  CallPresentation,
   ClientTokenId,
   Grant,
   JsonValue,
@@ -18,6 +20,7 @@ import {
   canonicalRequestHash,
   evaluatePolicy,
 } from '@approval-mcp/policy';
+import type { PluginCallDescription } from '@approval-mcp/plugin-sdk';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { AtMostOnceExecutionRegistry } from './pending-call-registry.js';
@@ -38,17 +41,7 @@ export interface CallCoordinator {
 
 interface CoordinatorApprovalService {
   request(
-    input: {
-      callId: CallId;
-      clientTokenId: ClientTokenId;
-      upstreamId: UpstreamId;
-      toolName: string;
-      requestHash: string;
-      context: JsonValue;
-      normalizationVersion: number;
-      reasonCode: string;
-      expiresAt: string;
-    },
+    input: ApprovalRequestInput,
     signal: AbortSignal,
   ): Promise<ApprovalOutcome>;
 }
@@ -74,6 +67,12 @@ interface PolicyCallCoordinatorOptions {
   upstream: CoordinatorUpstream;
   journal: CoordinatorJournal;
   normalizationVersion?: number;
+  describe?(input: AuthorizedToolCall): Promise<{
+    description: PluginCallDescription;
+    normalizationVersion: number;
+    pluginId?: string;
+    pluginVersion?: string;
+  }>;
   approvalTimeoutMs?(input: AuthorizedToolCall): number;
   toolCallTimeoutMs?(input: AuthorizedToolCall): number;
   sensitivePaths?: readonly string[];
@@ -101,18 +100,32 @@ export class PolicyCallCoordinator implements CallCoordinator {
   ): Promise<CallToolResult> {
     const callId = randomUUID() as CallId;
     const startedAt = this.#options.now?.() ?? new Date();
-    const context = input.arguments as JsonValue;
+    const described = await this.#options.describe?.(input);
+    const context =
+      described?.description.normalizedContext ??
+      (input.arguments as JsonValue);
+    const normalizationVersion =
+      described?.normalizationVersion ??
+      this.#options.normalizationVersion ??
+      1;
+    const sensitivePaths = [
+      ...(this.#options.sensitivePaths ?? []),
+      ...(described?.description.sensitivePaths ?? []),
+    ];
+    const journalArguments = redact(input.arguments, {
+      sensitivePaths,
+      payloadLimitBytes: 64 * 1024,
+    }).value;
+    const presentation = this.#presentation(described, journalArguments);
     const requestHash = canonicalRequestHash({
       clientTokenId: input.clientTokenId,
       upstreamId: input.upstreamId,
       toolName: input.toolName,
-      arguments: context,
+      arguments: input.arguments as JsonValue,
     });
     await this.#append(input, callId, 'call.received', {
-      payload: redact(input.arguments, {
-        sensitivePaths: this.#options.sensitivePaths ?? [],
-        payloadLimitBytes: 64 * 1024,
-      }).value,
+      payload: journalArguments,
+      ...(presentation === undefined ? {} : { presentation }),
     });
     const decision = evaluatePolicy({
       visible: true,
@@ -121,7 +134,7 @@ export class PolicyCallCoordinator implements CallCoordinator {
       toolName: input.toolName,
       context,
       requestHash,
-      normalizationVersion: this.#options.normalizationVersion ?? 1,
+      normalizationVersion,
       policies: this.#options.policies(input),
       grants: this.#options.grants(),
       now: startedAt.toISOString(),
@@ -154,12 +167,13 @@ export class PolicyCallCoordinator implements CallCoordinator {
           toolName: input.toolName,
           requestHash,
           context: redact(context, {
-            sensitivePaths: this.#options.sensitivePaths ?? [],
-            payloadLimitBytes: 64 * 1024,
+            sensitivePaths,
+            payloadLimitBytes: 8 * 1024 * 1024,
           }).value,
-          normalizationVersion: this.#options.normalizationVersion ?? 1,
+          normalizationVersion,
           reasonCode: decision.reasonCode,
           expiresAt,
+          ...(presentation === undefined ? {} : { presentation }),
         },
         signal,
       );
@@ -205,6 +219,52 @@ export class PolicyCallCoordinator implements CallCoordinator {
         throw error;
       }
     });
+  }
+
+  #presentation(
+    described:
+      | {
+          description: PluginCallDescription;
+          pluginId?: string;
+          pluginVersion?: string;
+        }
+      | undefined,
+    redactedArguments: JsonValue,
+  ): CallPresentation | undefined {
+    if (described === undefined) return undefined;
+    const { description } = described;
+    const sections =
+      description.source === 'generic' && description.sections[0] !== undefined
+        ? [
+            {
+              ...structuredClone(description.sections[0]),
+              fields:
+                description.sections[0].fields[0] === undefined
+                  ? []
+                  : [
+                      {
+                        ...structuredClone(description.sections[0].fields[0]),
+                        value: structuredClone(redactedArguments),
+                      },
+                    ],
+            },
+          ]
+        : structuredClone(description.sections);
+    return {
+      source: description.source,
+      ...(description.reasonCode === undefined
+        ? {}
+        : { reasonCode: description.reasonCode }),
+      ...(described.pluginId === undefined
+        ? {}
+        : { pluginId: described.pluginId }),
+      ...(described.pluginVersion === undefined
+        ? {}
+        : { pluginVersion: described.pluginVersion }),
+      title: structuredClone(description.title),
+      sections,
+      proposedScopes: structuredClone(description.proposedScopes),
+    };
   }
 
   async #terminal(

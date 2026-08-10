@@ -2,7 +2,7 @@ import { access, appendFile, mkdtemp, readFile, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createCallJournal } from './call-journal.js';
 import { rebuildSegmentIndex } from './segment-index.js';
@@ -27,6 +27,24 @@ function event(overrides: Partial<CallEvent> = {}): CallEvent {
 }
 
 describe('CallJournal', () => {
+  it('notifies listeners only after an event is durably appended', async () => {
+    const dataDir = await tempDataDir();
+    const listener = vi.fn();
+    const journal = await createCallJournal(dataDir, listener);
+    const appended = event();
+
+    await journal.append(appended);
+
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener).toHaveBeenCalledWith(appended);
+    await expect(
+      readFile(join(dataDir, 'calls-2026-07-28.jsonl'), 'utf8'),
+    ).resolves.toContain('"eventId":"event-1"');
+    await expect(
+      readFile(join(dataDir, 'calls-2026-07-28.index.jsonl'), 'utf8'),
+    ).resolves.toContain('"callId":"call-1"');
+  });
+
   it('reports and ignores an incomplete final line after a crash', async () => {
     const dataDir = await tempDataDir();
     const segment = join(dataDir, 'calls-2026-07-28.jsonl');
@@ -118,11 +136,72 @@ describe('CallJournal', () => {
       '"tokenLabel":"Claude Code","upstreamAlias":"Signal"',
     );
     expect(Buffer.concat(enrichedCsvChunks).toString('utf8')).toContain(
-      'clientTokenId,upstreamId,toolName,tokenLabel,upstreamAlias',
+      'clientTokenId,upstreamId,toolName,payload,presentation,tokenLabel,upstreamAlias',
     );
     expect(Buffer.concat(enrichedCsvChunks).toString('utf8')).toContain(
       '"Claude Code","Signal"',
     );
+  });
+
+  it('keeps the complete plugin text in history summaries and exports', async () => {
+    const dataDir = await tempDataDir();
+    const journal = await createCallJournal(dataDir);
+    const fullText = 'Celý text zprávy včetně druhého řádku\na detailů.';
+    await journal.append(
+      event({
+        payload: { conversationId: 'family', text: fullText },
+        presentation: {
+          source: 'plugin',
+          pluginId: 'minutes',
+          pluginVersion: '1.0.0',
+          title: {
+            key: 'minutes.send_message',
+            fallback: { en: 'Send message', cs: 'Odeslat zprávu' },
+          },
+          sections: [
+            {
+              id: 'request',
+              heading: {
+                key: 'minutes.request',
+                fallback: { en: 'Request', cs: 'Požadavek' },
+              },
+              fields: [
+                {
+                  label: {
+                    key: 'minutes.text',
+                    fallback: { en: 'Text', cs: 'Text' },
+                  },
+                  value: fullText,
+                },
+              ],
+            },
+          ],
+          proposedScopes: [],
+        },
+      }),
+    );
+
+    await expect(journal.query({})).resolves.toMatchObject({
+      items: [
+        {
+          presentation: {
+            title: { fallback: { cs: 'Odeslat zprávu' } },
+          },
+        },
+      ],
+    });
+    await expect(journal.get('call-1')).resolves.toMatchObject({
+      events: [
+        {
+          presentation: {
+            sections: [{ fields: [{ value: fullText }] }],
+          },
+        },
+      ],
+    });
+    const csv: Uint8Array[] = [];
+    for await (const chunk of journal.export({}, 'csv')) csv.push(chunk);
+    expect(Buffer.concat(csv).toString('utf8')).toContain('Celý text zprávy');
   });
 
   it('deletes only closed segments older than retention', async () => {

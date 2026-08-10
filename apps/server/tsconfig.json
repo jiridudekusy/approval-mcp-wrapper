@@ -10,6 +10,7 @@
     { "path": "../../packages/call-journal" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/gateway" },
+    { "path": "../../packages/minutes-plugin" },
     { "path": "../../packages/plugin-sdk" },
     { "path": "../../packages/policy" },
     { "path": "../../packages/state-store" },

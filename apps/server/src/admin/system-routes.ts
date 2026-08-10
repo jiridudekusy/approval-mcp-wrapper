@@ -5,7 +5,14 @@ import { authorizeAdmin } from './authorization.js';
 
 export async function registerSystemRoutes(
   app: FastifyInstance,
-  options: { sessions: SessionService },
+  options: {
+    sessions: SessionService;
+    plugins?: readonly Readonly<{
+      id: string;
+      version: string;
+      normalizationVersion: number;
+    }>[];
+  },
 ): Promise<void> {
   app.get('/api/admin/system', async (request, reply) => {
     if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
@@ -14,5 +21,9 @@ export async function registerSystemRoutes(
       runtime: process.version,
       uptimeSeconds: Math.floor(process.uptime()),
     };
+  });
+  app.get('/api/admin/plugins', async (request, reply) => {
+    if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
+    return options.plugins ?? [];
   });
 }

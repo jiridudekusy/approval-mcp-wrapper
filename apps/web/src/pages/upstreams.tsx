@@ -16,10 +16,12 @@ import { useI18n } from '../i18n/i18n.js';
 import { Icon } from '../components/icon.js';
 
 interface UpstreamView extends ManagedUpstream {}
+interface PluginView { id: string; version: string; normalizationVersion: number }
 
 export function Upstreams({ csrfToken }: { csrfToken: string }) {
   const { t } = useI18n();
   const [items, setItems] = useState<UpstreamView[]>([]);
+  const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string>();
   const [deleting, setDeleting] = useState<{
@@ -79,7 +81,12 @@ export function Upstreams({ csrfToken }: { csrfToken: string }) {
       setDeleting({ ...deleting, busy: false, error: true });
     }
   }, [csrfToken, deleting, refresh]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void Promise.all([
+      refresh(),
+      api<PluginView[]>('/api/admin/plugins').then(setPlugins),
+    ]);
+  }, [refresh]);
   return (
     <section className="page">
       <header className="page-header">
@@ -92,6 +99,7 @@ export function Upstreams({ csrfToken }: { csrfToken: string }) {
       {adding && (
         <UpstreamForm
           csrfToken={csrfToken}
+          plugins={plugins}
           onCancel={() => setAdding(false)}
           onCreated={(upstream) => {
             setAdding(false);
@@ -118,12 +126,13 @@ export function Upstreams({ csrfToken }: { csrfToken: string }) {
             <div className="record-badges">
               {item.allowPrivateNetwork && <span className="private-badge"><Icon name="alert" />{t('upstreams.privateBadge')}</span>}
               {item.credentialsConfigured && <span><Icon name="key" />{t('upstreams.authBadge')}</span>}
+              {item.pluginId !== undefined && item.pluginVersion !== undefined && <span><Icon name="chip" />{item.pluginId} · {item.pluginVersion}</span>}
             </div>
             <div className="upstream-actions">
               <button className="secondary-button" type="button" onClick={() => setEditingId(editingId === item.id ? undefined : item.id)}>{editingId === item.id ? t('common.close') : t('upstreams.edit')}</button>
               <button className="danger-link" type="button" onClick={() => void prepareDelete(item)}>{t('upstreams.remove')}</button>
             </div>
-            {editingId === item.id && <UpstreamEditForm upstream={item} csrfToken={csrfToken} onCancel={() => setEditingId(undefined)} onSaved={() => { setEditingId(undefined); void refresh(); }} />}
+            {editingId === item.id && <UpstreamEditForm upstream={item} plugins={plugins} csrfToken={csrfToken} onCancel={() => setEditingId(undefined)} onSaved={() => { setEditingId(undefined); void refresh(); }} />}
             {deleting?.upstream.id === item.id && <UpstreamDeleteConfirmation alias={item.alias} impact={deleting.impact} busy={deleting.busy} error={deleting.error} onCancel={() => setDeleting(undefined)} onConfirm={() => void confirmDelete()} />}
             <ToolCatalogPanel tools={catalogs[item.id]?.tools} loading={loading[item.id] === true} error={errors[item.id]} onDiscover={() => void discover(item.id)} />
           </article>

@@ -11,9 +11,12 @@ export function createGenericDescription(
   return {
     source: 'generic',
     reasonCode,
-    normalizedContext: {
-      arguments: structuredClone(input.arguments),
-    },
+    normalizedContext:
+      input.arguments !== null &&
+      typeof input.arguments === 'object' &&
+      !Array.isArray(input.arguments)
+        ? structuredClone(input.arguments)
+        : { arguments: structuredClone(input.arguments) },
     sensitivePaths: [],
     title: {
       key: 'plugin.generic.title',

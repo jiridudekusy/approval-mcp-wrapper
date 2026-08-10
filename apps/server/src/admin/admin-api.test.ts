@@ -29,6 +29,11 @@ afterEach(async () => {
 });
 
 async function fixture(options?: {
+  plugins?: readonly Readonly<{
+    id: string;
+    version: string;
+    normalizationVersion: number;
+  }>[];
   discoverTools?(upstreamId: string): Promise<{
     upstreamId: string;
     refreshedAt: string;
@@ -68,6 +73,7 @@ async function fixture(options?: {
     discoverTools: options?.discoverTools,
     credentialVault: new CredentialVault(Buffer.alloc(32, 7)),
     onUpstreamsChanged: options?.onUpstreamsChanged,
+    plugins: options?.plugins,
   });
   apps.push(app);
   return {
@@ -81,6 +87,60 @@ async function fixture(options?: {
 }
 
 describe('admin API', () => {
+  it('lists exact plugin pins and stores one on an upstream', async () => {
+    const { app, authHeaders } = await fixture({
+      plugins: [
+        { id: 'minutes', version: '1.0.0', normalizationVersion: 1 },
+      ],
+    });
+
+    const plugins = await app.inject({
+      method: 'GET',
+      url: '/api/admin/plugins',
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(plugins.json()).toEqual([
+      { id: 'minutes', version: '1.0.0', normalizationVersion: 1 },
+    ]);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/admin/upstreams',
+      headers: authHeaders,
+      payload: {
+        alias: 'minutes',
+        url: 'http://127.0.0.1:3333/mcp',
+        allowPrivateNetwork: true,
+        pluginId: 'minutes',
+        pluginVersion: '1.0.0',
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toEqual(
+      expect.objectContaining({
+        pluginId: 'minutes',
+        pluginVersion: '1.0.0',
+      }),
+    );
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/admin/upstreams',
+      headers: authHeaders,
+      payload: {
+        alias: 'unknown',
+        url: 'http://127.0.0.1:4444/mcp',
+        allowPrivateNetwork: true,
+        pluginId: 'minutes',
+        pluginVersion: '9.0.0',
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toMatchObject({
+      error: { code: 'plugin.invalid_pin' },
+    });
+  });
+
   it('backfills the default tool timeout on existing profiles', async () => {
     const now = '2026-07-30T00:00:00.000Z';
     const { app, authHeaders, store } = await fixture({
@@ -534,6 +594,7 @@ describe('admin API', () => {
     const { app, authHeaders } = await fixture();
 
     expect((await app.inject('/api/admin/tokens')).statusCode).toBe(401);
+    expect((await app.inject('/api/admin/history/events')).statusCode).toBe(401);
     expect(
       (
         await app.inject({

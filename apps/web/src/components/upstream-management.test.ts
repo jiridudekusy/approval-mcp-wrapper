@@ -23,6 +23,7 @@ describe('upstream management UI', () => {
             credentialsConfigured: true,
             version: 3,
           },
+          plugins: [],
           csrfToken: 'csrf',
           onSaved: () => undefined,
           onCancel: () => undefined,

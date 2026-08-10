@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { useI18n } from '../i18n/i18n.js';
 import { Icon } from './icon.js';
+import {
+  localizedMessage,
+  type LocalizedMessageView,
+} from './call-presentation.js';
 
 export interface GrantView {
   id: string;
@@ -14,6 +18,17 @@ export interface GrantView {
   createdAt: string;
   expiresAt?: string;
   version: number;
+  presentation?: {
+    source: 'generic' | 'plugin';
+    pluginId?: string;
+    pluginVersion?: string;
+    title: LocalizedMessageView;
+    scope: LocalizedMessageView;
+  };
+}
+
+function pluginName(id: string): string {
+  return id.length === 0 ? id : `${id[0]?.toUpperCase()}${id.slice(1)}`;
 }
 
 export function ActiveGrants({
@@ -25,7 +40,7 @@ export function ActiveGrants({
   revokingId: string | undefined;
   onRevoke(grant: GrantView): void;
 }) {
-  const { t, formatDate } = useI18n();
+  const { t, locale, formatDate } = useI18n();
   const [confirmingId, setConfirmingId] = useState<string>();
   if (grants.length === 0) {
     return <div className="empty-panel">{t('access.noActiveGrants')}</div>;
@@ -35,18 +50,18 @@ export function ActiveGrants({
       {grants.map((grant) => (
         <article key={grant.id}>
           <div className="grant-main">
-            <code>{grant.toolName}</code>
+            <strong>{grant.presentation === undefined ? grant.toolName : `${grant.presentation.pluginId === undefined ? '' : `${pluginName(grant.presentation.pluginId)} · `}${localizedMessage(grant.presentation.title, locale)}`}</strong>
             <span>{grant.tokenLabel ?? t('common.unknownAgent')} → {grant.upstreamAlias ?? t('common.unknownUpstream')}</span>
           </div>
           <dl>
             <div>
               <dt>{t('access.scope')}</dt>
-              <dd>{grant.expiresAt === undefined ? <span className="grant-scope permanent"><Icon name="infinity" />{t('access.forever')}</span> : <span className="grant-scope expiring"><Icon name="clock" />{t('access.validUntil')} {formatDate(grant.expiresAt)}</span>}</dd>
+              <dd>{grant.presentation !== undefined && <span className="grant-human-scope">{localizedMessage(grant.presentation.scope, locale)}</span>}{grant.expiresAt === undefined ? <span className="grant-scope permanent"><Icon name="infinity" />{t('access.forever')}</span> : <span className="grant-scope expiring"><Icon name="clock" />{t('access.validUntil')} {formatDate(grant.expiresAt)}</span>}</dd>
             </div>
             {grant.predicates.length > 0 && (
               <div>
-                <dt>{t('access.conditions')}</dt>
-                <dd><code>{JSON.stringify(grant.predicates)}</code></dd>
+                <dt>{t('access.technicalDetails')}</dt>
+                <dd><details><summary>{t('access.conditions')}</summary><code>{JSON.stringify(grant.predicates)}</code></details></dd>
               </div>
             )}
           </dl>

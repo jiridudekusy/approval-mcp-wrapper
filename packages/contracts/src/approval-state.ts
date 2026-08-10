@@ -11,12 +11,18 @@ import type {
   ClientTokenId,
   UpstreamId,
 } from './ids.js';
+import type { CallPresentation } from './presentation.js';
 
 export type ApprovalDecision =
   | { action: 'deny' }
   | { action: 'allow_once' }
-  | { action: 'allow_until'; expiresAt: string; predicate: Predicate }
-  | { action: 'allow_forever'; predicate: Predicate };
+  | {
+      action: 'allow_until';
+      expiresAt: string;
+      predicate?: Predicate;
+      scopeId?: string;
+    }
+  | { action: 'allow_forever'; predicate?: Predicate; scopeId?: string };
 
 export interface ApprovalRequestInput {
   callId: CallId;
@@ -28,6 +34,7 @@ export interface ApprovalRequestInput {
   normalizationVersion: number;
   reasonCode: string;
   expiresAt: string;
+  presentation?: CallPresentation;
 }
 
 export type ApprovalOutcome =

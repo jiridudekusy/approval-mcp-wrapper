@@ -28,15 +28,24 @@ import {
   CredentialVault,
   UpstreamRegistry,
 } from '@approval-mcp/upstream';
+import {
+  MinutesApprovalPlugin,
+} from '@approval-mcp/minutes-plugin';
+import {
+  createGenericDescription,
+  PluginRegistry,
+} from '@approval-mcp/plugin-sdk';
 import { join } from 'node:path';
 import {
   ApprovalEventBroker,
+  HistoryEventBroker,
   registerAdminRoutes,
 } from './admin/index.js';
 import fastifyStatic from '@fastify/static';
 import type {
   ClientTokenId,
   Grant,
+  JsonValue,
   Policy,
   PolicyId,
   Profile,
@@ -55,7 +64,15 @@ import { startRetentionJob } from './operations/retention-job.js';
 
 const config = loadConfig();
 const stateStore = await createConfigStateStore(config.dataDir);
-const journal = await createCallJournal(join(config.dataDir, 'calls'));
+const historyBroker = new HistoryEventBroker();
+const journal = await createCallJournal(
+  join(config.dataDir, 'calls'),
+  (event) => historyBroker.publish({
+    callId: event.callId,
+    timestamp: event.timestamp,
+    type: event.type,
+  }),
+);
 const sessions = new SessionService(new StateSessionRepository(stateStore));
 const credentialVault = new CredentialVault(config.masterKey);
 const configuredUpstreams = () =>
@@ -66,6 +83,24 @@ const upstreams = new UpstreamRegistry({
   upstreams: configuredUpstreams(),
   credentialVault,
 });
+const pluginRegistry = new PluginRegistry([
+  new MinutesApprovalPlugin({
+    async readJson(upstreamId, uri) {
+      const result = (await upstreams.readResource({
+        upstreamId: upstreamId as Upstream['id'],
+        uri,
+        timeoutMs: 3_000,
+      })) as {
+        contents?: readonly Readonly<{ text?: unknown }>[];
+      };
+      const text = result.contents?.find(
+        (content) => typeof content.text === 'string',
+      )?.text;
+      if (typeof text !== 'string') return undefined;
+      return JSON.parse(text) as JsonValue;
+    },
+  }),
+]);
 const directPolicies = () =>
   stateStore.read((state) =>
     Object.values(state.policies).map((value) => value as unknown as Policy),
@@ -158,6 +193,45 @@ const coordinator = new PolicyCallCoordinator({
   toolCallTimeoutMs: (input) =>
     timeoutsFor(input.clientTokenId).toolCallTimeoutSeconds * 1_000,
   grants,
+  describe: async (input) => {
+    const upstream = configuredUpstreams().find(
+      (candidate) => candidate.id === input.upstreamId,
+    );
+    if (upstream === undefined) {
+      throw new Error(`Unknown upstream: ${input.upstreamId}`);
+    }
+    const toolDescription = upstreams
+      .getCatalog(input.upstreamId)
+      ?.tools.find((tool) => tool.name === input.toolName)?.description;
+    const pluginInput = {
+      upstreamId: input.upstreamId,
+      upstreamAlias: upstream.alias,
+      toolName: input.toolName,
+      ...(toolDescription === undefined
+        ? {}
+        : { toolDescription }),
+      arguments: input.arguments as JsonValue,
+    };
+    if (
+      upstream.pluginId === undefined ||
+      upstream.pluginVersion === undefined
+    ) {
+      return {
+        description: createGenericDescription(pluginInput),
+        normalizationVersion: 1,
+      };
+    }
+    const pin = {
+      id: upstream.pluginId,
+      version: upstream.pluginVersion,
+    };
+    return {
+      description: await pluginRegistry.describe(pin, pluginInput),
+      normalizationVersion: pluginRegistry.normalizationVersion(pin),
+      pluginId: pin.id,
+      pluginVersion: pin.version,
+    };
+  },
   approvals,
   upstream: upstreams,
   journal,
@@ -310,7 +384,9 @@ await registerAdminRoutes(app, {
   credentialVault,
   approvals,
   broker: approvalBroker,
+  historyBroker,
   journal,
+  plugins: pluginRegistry.list(),
   onUpstreamsChanged: async () =>
     upstreams.replaceUpstreams(configuredUpstreams()),
   discoverTools: (upstreamId) => upstreams.refresh(upstreamId),

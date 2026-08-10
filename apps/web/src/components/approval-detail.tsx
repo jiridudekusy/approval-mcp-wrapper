@@ -6,6 +6,10 @@ import type { ApprovalViewModel } from './approval-view-model.js';
 import { GrantScopeForm } from './grant-scope-form.js';
 import type { Predicate } from './types.js';
 import { Icon } from './icon.js';
+import {
+  CallPresentation,
+  localizedMessage,
+} from './call-presentation.js';
 
 export function ApprovalDetail({
   approval,
@@ -20,7 +24,7 @@ export function ApprovalDetail({
   onClosed(): void;
   onDecided?(): void;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [permanent, setPermanent] = useState(false);
   const [predicate, setPredicate] = useState<Predicate>({
@@ -29,6 +33,21 @@ export function ApprovalDetail({
   });
   const [error, setError] = useState(false);
   const [conditionOpen, setConditionOpen] = useState(false);
+  const [selectedScopeId, setSelectedScopeId] = useState(
+    approval.presentation?.proposedScopes[0]?.id,
+  );
+  const selectedScope = approval.presentation?.proposedScopes.find(
+    (scope) => scope.id === selectedScopeId,
+  );
+  const hasPluginPresentation = approval.presentation?.source === 'plugin';
+  const allowsHour =
+    !hasPluginPresentation ||
+    (selectedScope !== undefined &&
+      (selectedScope.durations ?? ['hour', 'forever']).includes('hour'));
+  const allowsForever =
+    !hasPluginPresentation ||
+    (selectedScope !== undefined &&
+      (selectedScope.durations ?? ['hour', 'forever']).includes('forever'));
   const panelRef = useRef<HTMLElement>(null);
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -50,8 +69,8 @@ export function ApprovalDetail({
     decision:
       | { action: 'deny' }
       | { action: 'allow_once' }
-      | { action: 'allow_until'; expiresAt: string; predicate: Predicate }
-      | { action: 'allow_forever'; predicate: Predicate },
+      | { action: 'allow_until'; expiresAt: string; predicate?: Predicate; scopeId?: string }
+      | { action: 'allow_forever'; predicate?: Predicate; scopeId?: string },
   ) {
     setBusy(true);
     setError(false);
@@ -81,7 +100,7 @@ export function ApprovalDetail({
       <header>
         <div>
           <p className="eyebrow">{t('approval.pending')}</p>
-          <h2 id="approval-title">{approval.toolName}</h2>
+          <h2 id="approval-title">{approval.presentation === undefined ? approval.toolName : localizedMessage(approval.presentation.title, locale)}</h2>
         </div>
         <button type="button" className="close icon-button" onClick={onClosed} aria-label={t('common.close')}><Icon name="close" /></button>
       </header>
@@ -91,19 +110,19 @@ export function ApprovalDetail({
         <div><dt>{t('approval.upstream')}</dt><dd>{approval.upstreamName ?? t('common.unknownUpstream')}</dd></div>
         <div><dt>{t('approval.received')}</dt><dd>{new Date(approval.createdAt).toLocaleString()}</dd></div>
       </dl>
-      <h3>{t('approval.arguments')}</h3>
-      <pre>{JSON.stringify(approval.arguments, null, 2)}</pre>
-      <button className="condition-toggle" type="button" aria-expanded={conditionOpen} onClick={() => setConditionOpen((value) => !value)}><Icon name={conditionOpen ? 'chevron-down' : 'chevron-right'} />{t('approval.addCondition')}</button>
-      {conditionOpen && <GrantScopeForm predicate={predicate} onChange={setPredicate} />}
-      <label className="confirm">
-        <input
-          type="checkbox"
-          checked={permanent}
-          onChange={(event) => setPermanent(event.target.checked)}
-        />
-        {t('approval.confirmForever')}
-      </label>
-      <p className="permanent-note">{t('approval.foreverWarning')}</p>
+      {approval.presentation === undefined ? <><h3>{t('approval.arguments')}</h3><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></> : <CallPresentation presentation={approval.presentation} />}
+      {hasPluginPresentation && approval.presentation !== undefined && approval.presentation.proposedScopes.length > 0 ? (
+        <fieldset className="scope-options">
+          <legend>{t('approval.reusableScope')}</legend>
+          {approval.presentation.proposedScopes.map((scope) => (
+            <label key={scope.id}>
+              <input type="radio" name="scope" checked={selectedScopeId === scope.id} onChange={() => setSelectedScopeId(scope.id)} />
+              {localizedMessage(scope.label, locale)}
+            </label>
+          ))}
+        </fieldset>
+      ) : !hasPluginPresentation ? <><button className="condition-toggle" type="button" aria-expanded={conditionOpen} onClick={() => setConditionOpen((value) => !value)}><Icon name={conditionOpen ? 'chevron-down' : 'chevron-right'} />{t('approval.addCondition')}</button>{conditionOpen && <GrantScopeForm predicate={predicate} onChange={setPredicate} />}</> : <p className="permanent-note">{t('approval.noReusableScope')}</p>}
+      {allowsForever && <><label className="confirm"><input type="checkbox" checked={permanent} onChange={(event) => setPermanent(event.target.checked)} />{t('approval.confirmForever')}</label><p className="permanent-note">{t('approval.foreverWarning')}</p></>}
       {error && <p className="error-inline" role="alert">{t('approval.failed')}</p>}
       <div className="decision-actions">
         <button
@@ -121,27 +140,27 @@ export function ApprovalDetail({
         >
           {t('approval.allowOnce')}
         </button>
-        <button
+        {allowsHour && <button
           type="button"
           disabled={busy}
           onClick={() =>
             void decide({
               action: 'allow_until',
               expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
-              predicate,
+              ...(selectedScopeId === undefined ? { predicate } : { scopeId: selectedScopeId }),
             })
           }
         >
           {t('approval.allowHour')}
-        </button>
-        <button
+        </button>}
+        {allowsForever && <button
           type="button"
           className="primary"
           disabled={busy || !permanent}
-          onClick={() => void decide({ action: 'allow_forever', predicate })}
+          onClick={() => void decide({ action: 'allow_forever', ...(selectedScopeId === undefined ? { predicate } : { scopeId: selectedScopeId }) })}
         >
           {busy ? t('approval.deciding') : t('approval.allowForever')}
-        </button>
+        </button>}
       </div>
     </section>
   );

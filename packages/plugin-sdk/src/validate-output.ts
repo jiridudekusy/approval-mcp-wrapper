@@ -53,6 +53,7 @@ const pluginDescriptionSchema = z.object({
       id: z.string().min(1),
       label: localizedMessageSchema,
       predicates: z.array(predicateSchema),
+      durations: z.array(z.enum(['forever', 'hour'])).optional(),
     }),
   ),
 });

@@ -43,6 +43,28 @@ export class PluginRegistry {
     }
   }
 
+  public normalizationVersion(pin: PluginPin): number {
+    return this.plugins.get(this.key(pin))?.normalizationVersion ?? 1;
+  }
+
+  public list(): readonly Readonly<{
+    id: string;
+    version: string;
+    normalizationVersion: number;
+  }>[] {
+    return [...this.plugins.values()]
+      .map((plugin) => ({
+        id: plugin.id,
+        version: plugin.version,
+        normalizationVersion: plugin.normalizationVersion,
+      }))
+      .sort((left, right) =>
+        `${left.id}@${left.version}`.localeCompare(
+          `${right.id}@${right.version}`,
+        ),
+      );
+  }
+
   private key(pin: PluginPin): string {
     return `${pin.id}@${pin.version}`;
   }

@@ -24,6 +24,12 @@ export interface UpstreamCall {
   timeoutMs?: number;
 }
 
+export interface UpstreamResourceRead {
+  upstreamId: UpstreamId;
+  uri: string;
+  timeoutMs?: number;
+}
+
 export type UpstreamHealth =
   | { status: 'unknown' }
   | { status: 'healthy'; checkedAt: string }
@@ -133,6 +139,16 @@ export class UpstreamRegistry extends EventEmitter {
         ...(input.signal === undefined ? {} : { signal: input.signal }),
         ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
       },
+    );
+  }
+
+  async readResource(input: UpstreamResourceRead): Promise<unknown> {
+    const connection =
+      this.#connections.get(input.upstreamId) ??
+      (await this.#connectAndReturn(input.upstreamId));
+    return connection.readResource(
+      { uri: input.uri },
+      input.timeoutMs === undefined ? undefined : { timeoutMs: input.timeoutMs },
     );
   }
 

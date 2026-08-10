@@ -64,6 +64,7 @@ describe('UpstreamRegistry', () => {
       callTool: vi.fn().mockResolvedValue({
         content: [{ type: 'text', text: 'done' }],
       }),
+      readResource: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
     };
     const factory: McpConnectionFactory = {
@@ -94,6 +95,16 @@ describe('UpstreamRegistry', () => {
       { signal, timeoutMs: 120_000 },
     );
     expect(registry.health(upstreamId).status).toBe('healthy');
+
+    await registry.readResource({
+      upstreamId,
+      uri: 'minutes://conversations/family',
+      timeoutMs: 3_000,
+    });
+    expect(connection.readResource).toHaveBeenCalledWith(
+      { uri: 'minutes://conversations/family' },
+      { timeoutMs: 3_000 },
+    );
   });
 
   it('decrypts only upstream credentials for the connection adapter', async () => {
@@ -105,6 +116,7 @@ describe('UpstreamRegistry', () => {
       connect: vi.fn().mockResolvedValue({
         listTools: vi.fn().mockResolvedValue({ tools: [] }),
         callTool: vi.fn(),
+        readResource: vi.fn(),
         close: vi.fn(),
       }),
     };

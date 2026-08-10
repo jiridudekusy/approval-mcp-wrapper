@@ -86,6 +86,13 @@ interface PendingWaiter {
   clearExpiry(): void;
 }
 
+function terminalRequest(
+  request: ApprovalRequestInput,
+): ApprovalRequestInput {
+  const { presentation: _presentation, ...withoutPresentation } = request;
+  return { ...withoutPresentation, context: {} };
+}
+
 function terminalApproval(
   record: ApprovalRecord,
   status: 'abandoned' | 'expired' | 'interrupted',
@@ -97,6 +104,7 @@ function terminalApproval(
   }
   return {
     ...record,
+    request: terminalRequest(record.request),
     approval: {
       ...record.approval,
       status,
@@ -194,6 +202,7 @@ export class ApprovalOrchestrator {
       if (this.#isExplicitlyDenied(current.request)) {
         return {
           ...current,
+          request: terminalRequest(current.request),
           approval: {
             ...current.approval,
             status: 'denied',
@@ -208,6 +217,7 @@ export class ApprovalOrchestrator {
       if (decision.action === 'deny') {
         return {
           ...current,
+          request: terminalRequest(current.request),
           approval: {
             ...current.approval,
             status: 'denied',
@@ -222,6 +232,7 @@ export class ApprovalOrchestrator {
       const grant = this.#createGrant(current.request, decision, actor, now);
       return {
         ...current,
+        request: terminalRequest(current.request),
         grant,
         approval: {
           ...current.approval,
@@ -261,8 +272,44 @@ export class ApprovalOrchestrator {
     if (expiresAt !== undefined && expiresAt <= now) {
       throw new ApprovalConflictError('Grant expiry must be in the future');
     }
+    const selectedScope =
+      decision.action === 'allow_once'
+        ? undefined
+        : this.#selectedScope(request, decision.scopeId);
+    if (
+      selectedScope !== undefined &&
+      decision.action !== 'allow_once' &&
+      !(selectedScope.durations ?? ['hour', 'forever']).includes(
+        decision.action === 'allow_forever' ? 'forever' : 'hour',
+      )
+    ) {
+      throw new ApprovalConflictError(
+        'Grant duration is not allowed for the selected scope',
+      );
+    }
+    if (
+      selectedScope !== undefined &&
+      decision.action === 'allow_until' &&
+      new Date(decision.expiresAt).getTime() >
+        new Date(now).getTime() + 60 * 60_000 + 1_000
+    ) {
+      throw new ApprovalConflictError(
+        'Plugin hour grant cannot exceed one hour',
+      );
+    }
     const predicates =
-      decision.action === 'allow_once' ? [] : [decision.predicate];
+      decision.action === 'allow_once'
+        ? []
+        : selectedScope === undefined
+          ? decision.predicate === undefined
+            ? []
+            : [decision.predicate]
+          : [...selectedScope.predicates];
+    if (decision.action !== 'allow_once' && predicates.length === 0) {
+      throw new ApprovalConflictError(
+        'Reusable grant requires a constrained scope',
+      );
+    }
     return {
       id: randomUUID() as GrantId,
       clientTokenId: request.clientTokenId,
@@ -271,6 +318,21 @@ export class ApprovalOrchestrator {
       predicates,
       normalizationVersion: request.normalizationVersion,
       approvedBy: actor,
+      ...(selectedScope === undefined || request.presentation === undefined
+        ? {}
+        : {
+            presentation: {
+              source: request.presentation.source,
+              ...(request.presentation.pluginId === undefined
+                ? {}
+                : { pluginId: request.presentation.pluginId }),
+              ...(request.presentation.pluginVersion === undefined
+                ? {}
+                : { pluginVersion: request.presentation.pluginVersion }),
+              title: structuredClone(request.presentation.title),
+              scope: structuredClone(selectedScope.label),
+            },
+          }),
       schemaVersion: 1,
       createdAt: now,
       updatedAt: now,
@@ -280,6 +342,20 @@ export class ApprovalOrchestrator {
         : {}),
       ...(expiresAt === undefined ? {} : { expiresAt }),
     };
+  }
+
+  #selectedScope(
+    request: ApprovalRequestInput,
+    scopeId: string | undefined,
+  ) {
+    if (scopeId === undefined) return undefined;
+    const scope = request.presentation?.proposedScopes.find(
+      (candidate) => candidate.id === scopeId,
+    );
+    if (scope === undefined) {
+      throw new ApprovalConflictError('Unknown proposed grant scope');
+    }
+    return scope;
   }
 
   async #finishPending(

@@ -163,13 +163,16 @@ server. A plugin can:
 - create a human-readable request description,
 - return declarative sections, risks, and highlights for approval UI,
 - propose constrained grants such as "only this group",
+- resolve display names through bounded, host-mediated, read-only resources on
+  the same upstream,
 - provide English and Czech translations for its own message keys.
 
 A plugin cannot:
 
 - return the final authorization decision or bypass the policy engine,
 - access raw upstream credentials,
-- call the upstream itself,
+- call upstream tools, access arbitrary resources, or make network requests
+  itself,
 - deliver executable JavaScript to the browser.
 
 Plugin output is validated against a versioned contract. A plugin failure
@@ -247,6 +250,8 @@ A time-limited or permanent grant:
 2. The gateway authenticates the token and creates `callId`.
 3. It checks tool visibility and validates the input schema.
 4. A plugin produces normalized context, redaction metadata, and presentation.
+   The host may satisfy bounded same-upstream read-only resource lookups needed
+   for display names; lookup failure falls back to a labeled technical ID.
 5. The policy engine returns:
    - `deny`: return a structured error,
    - `allow`: continue to the upstream,

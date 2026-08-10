@@ -10,6 +10,7 @@ import type {
   TokenProfileAssignmentId,
   UpstreamId,
 } from './ids.js';
+import type { GrantPresentation } from './presentation.js';
 
 export type JsonPrimitive = boolean | null | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
@@ -36,6 +37,7 @@ export interface Upstream extends VersionedRecord {
   url: string;
   credentials?: EncryptedCredentialEnvelope;
   pluginId?: string;
+  pluginVersion?: string;
   allowPrivateNetwork: boolean;
 }
 
@@ -110,6 +112,7 @@ export interface Grant extends VersionedRecord {
   revokedAt?: string;
   normalizationVersion: number;
   approvedBy: AdminId;
+  presentation?: GrantPresentation;
 }
 
 export type ApprovalStatus =

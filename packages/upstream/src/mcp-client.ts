@@ -24,6 +24,10 @@ export interface McpConnection {
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<unknown>;
+  readResource(
+    input: { uri: string },
+    options?: { timeoutMs?: number },
+  ): Promise<unknown>;
   close(): Promise<void>;
 }
 
@@ -238,6 +242,12 @@ export class OfficialMcpConnectionFactory implements McpConnectionFactory {
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
         ...(options?.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
       }),
+      readResource: (input, options) =>
+        client.readResource(input, {
+          ...(options?.timeoutMs === undefined
+            ? {}
+            : { timeout: options.timeoutMs }),
+        }),
       close: () => client.close(),
     };
   }

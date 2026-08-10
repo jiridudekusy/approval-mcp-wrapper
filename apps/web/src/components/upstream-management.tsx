@@ -10,6 +10,8 @@ export interface ManagedUpstream {
   allowPrivateNetwork: boolean;
   credentialsConfigured: boolean;
   version: number;
+  pluginId?: string;
+  pluginVersion?: string;
 }
 
 export interface DeletionImpact {
@@ -21,11 +23,13 @@ export interface DeletionImpact {
 export function UpstreamEditForm({
   upstream,
   csrfToken,
+  plugins,
   onSaved,
   onCancel,
 }: {
   upstream: ManagedUpstream;
   csrfToken: string;
+  plugins: readonly Readonly<{ id: string; version: string }>[];
   onSaved(upstream: ManagedUpstream): void;
   onCancel(): void;
 }) {
@@ -37,6 +41,11 @@ export function UpstreamEditForm({
   );
   const [authorization, setAuthorization] = useState('');
   const [removeCredential, setRemoveCredential] = useState(false);
+  const [pluginPin, setPluginPin] = useState(
+    upstream.pluginId === undefined || upstream.pluginVersion === undefined
+      ? ''
+      : `${upstream.pluginId}@${upstream.pluginVersion}`,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
 
@@ -54,6 +63,12 @@ export function UpstreamEditForm({
             alias,
             url,
             allowPrivateNetwork: privateNetwork,
+            ...(pluginPin === ''
+              ? { pluginId: null, pluginVersion: null }
+              : {
+                  pluginId: pluginPin.slice(0, pluginPin.lastIndexOf('@')),
+                  pluginVersion: pluginPin.slice(pluginPin.lastIndexOf('@') + 1),
+                }),
             ...(removeCredential
               ? { credentials: null }
               : authorization === ''
@@ -107,6 +122,18 @@ export function UpstreamEditForm({
             value={authorization}
             onChange={(event) => setAuthorization(event.target.value)}
           />
+        </label>
+        <label className="field field-wide">
+          <span>{t('upstreams.plugin')}</span>
+          <select value={pluginPin} onChange={(event) => setPluginPin(event.target.value)}>
+            <option value="">{t('upstreams.noPlugin')}</option>
+            {plugins.map((plugin) => (
+              <option key={`${plugin.id}@${plugin.version}`} value={`${plugin.id}@${plugin.version}`}>
+                {plugin.id} · {plugin.version}
+              </option>
+            ))}
+          </select>
+          <small>{t('upstreams.pluginHint')}</small>
         </label>
       </div>
       <div className="form-options">

@@ -5,10 +5,12 @@ import { useI18n } from '../i18n/i18n.js';
 
 export function UpstreamForm({
   csrfToken,
+  plugins,
   onCreated,
   onCancel,
 }: {
   csrfToken: string;
+  plugins: readonly Readonly<{ id: string; version: string }>[];
   onCreated(upstream: { id: string }): void;
   onCancel(): void;
 }) {
@@ -17,6 +19,7 @@ export function UpstreamForm({
   const [url, setUrl] = useState('');
   const [authorization, setAuthorization] = useState('');
   const [privateNetwork, setPrivateNetwork] = useState(false);
+  const [pluginPin, setPluginPin] = useState('');
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -28,6 +31,12 @@ export function UpstreamForm({
           alias,
           url,
           allowPrivateNetwork: privateNetwork,
+          ...(pluginPin === ''
+            ? {}
+            : {
+                pluginId: pluginPin.slice(0, pluginPin.lastIndexOf('@')),
+                pluginVersion: pluginPin.slice(pluginPin.lastIndexOf('@') + 1),
+              }),
           ...(authorization === ''
             ? {}
             : { credentials: { authorization } }),
@@ -58,6 +67,18 @@ export function UpstreamForm({
         <label className="field field-wide">
           <span>{t('upstreams.credentials')}</span>
           <input type="password" autoComplete="off" value={authorization} onChange={(event) => setAuthorization(event.target.value)} />
+        </label>
+        <label className="field field-wide">
+          <span>{t('upstreams.plugin')}</span>
+          <select value={pluginPin} onChange={(event) => setPluginPin(event.target.value)}>
+            <option value="">{t('upstreams.noPlugin')}</option>
+            {plugins.map((plugin) => (
+              <option key={`${plugin.id}@${plugin.version}`} value={`${plugin.id}@${plugin.version}`}>
+                {plugin.id} · {plugin.version}
+              </option>
+            ))}
+          </select>
+          <small>{t('upstreams.pluginHint')}</small>
         </label>
       </div>
       <div className="form-options">

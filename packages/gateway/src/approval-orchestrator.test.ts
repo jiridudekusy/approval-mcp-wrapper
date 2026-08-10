@@ -78,6 +78,89 @@ describe('ApprovalOrchestrator', () => {
     });
   });
 
+  it('creates a reusable grant only from a server-stored plugin scope', async () => {
+    const repository = new InMemoryApprovalRepository();
+    const orchestrator = new ApprovalOrchestrator(repository);
+    const request = input();
+    request.presentation = {
+      source: 'plugin',
+      pluginId: 'minutes',
+      pluginVersion: '1.0.0',
+      title: {
+        key: 'minutes.send_message',
+        fallback: { en: 'Send message', cs: 'Odeslat zprávu' },
+      },
+      sections: [],
+      proposedScopes: [
+        {
+          id: 'conversation',
+          label: {
+            key: 'minutes.scope.conversation',
+            fallback: {
+              en: 'Conversation: Family',
+              cs: 'Konverzace: Rodina',
+            },
+          },
+          predicates: [
+            { path: '/conversationId', operator: 'equals', value: 'family' },
+          ],
+          durations: ['hour', 'forever'],
+        },
+      ],
+    };
+    const waiting = orchestrator.request(
+      request,
+      new AbortController().signal,
+    );
+    const id = await pendingId(repository);
+
+    await orchestrator.decide(
+      id,
+      { action: 'allow_forever', scopeId: 'conversation' },
+      actor,
+      request.requestHash,
+    );
+
+    await expect(waiting).resolves.toMatchObject({
+      status: 'approved',
+      grant: {
+        predicates: [
+          { path: '/conversationId', operator: 'equals', value: 'family' },
+        ],
+        presentation: {
+          pluginId: 'minutes',
+          scope: { fallback: { cs: 'Konverzace: Rodina' } },
+        },
+      },
+    });
+  });
+
+  it('rejects a reusable grant with an unknown plugin scope', async () => {
+    const repository = new InMemoryApprovalRepository();
+    const orchestrator = new ApprovalOrchestrator(repository);
+    const controller = new AbortController();
+    const request = input();
+    request.presentation = {
+      source: 'plugin',
+      title: { key: 'title', fallback: { en: 'Title' } },
+      sections: [],
+      proposedScopes: [],
+    };
+    const waiting = orchestrator.request(request, controller.signal);
+    const id = await pendingId(repository);
+
+    await expect(
+      orchestrator.decide(
+        id,
+        { action: 'allow_forever', scopeId: 'invented' },
+        actor,
+        request.requestHash,
+      ),
+    ).rejects.toThrow('scope');
+    controller.abort();
+    await waiting;
+  });
+
   it('supports deny and rejects every second terminal transition', async () => {
     const repository = new InMemoryApprovalRepository();
     const orchestrator = new ApprovalOrchestrator(repository);
@@ -86,6 +169,12 @@ describe('ApprovalOrchestrator', () => {
     await orchestrator.decide(id, { action: 'deny' }, actor, 'hash-call-1');
 
     await expect(waiting).resolves.toMatchObject({ status: 'denied' });
+    await expect(repository.find(id)).resolves.toMatchObject({
+      request: { context: {} },
+    });
+    expect((await repository.find(id))?.request).not.toHaveProperty(
+      'presentation',
+    );
     await expect(
       orchestrator.decide(id, { action: 'deny' }, actor, 'hash-call-1'),
     ).rejects.toBeInstanceOf(ApprovalConflictError);

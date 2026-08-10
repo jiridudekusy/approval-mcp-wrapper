@@ -43,6 +43,9 @@ export async function registerGrantRoutes(
               (upstream as Upstream | undefined)?.alias,
             toolName: grant.toolName,
             predicates: grant.predicates,
+            ...(grant.presentation === undefined
+              ? {}
+              : { presentation: grant.presentation }),
             scope: grant.expiresAt === undefined ? 'forever' : 'until',
             createdAt: grant.createdAt,
             ...(grant.expiresAt === undefined

@@ -1,4 +1,4 @@
-import type { JsonValue } from '@approval-mcp/contracts';
+import type { CallPresentation, JsonValue } from '@approval-mcp/contracts';
 
 export type CallEventType =
   | 'approval.decided'
@@ -20,6 +20,7 @@ export interface CallEvent {
   upstreamId: string;
   toolName: string;
   payload?: JsonValue;
+  presentation?: CallPresentation;
   policyOutcome?: 'allow' | 'deny' | 'require_approval';
   approvalStatus?: string;
   finalStatus?: 'abandoned' | 'denied' | 'error' | 'interrupted' | 'success' | 'timeout';
@@ -51,6 +52,10 @@ export interface CallSummary {
   clientTokenId: string;
   upstreamId: string;
   toolName: string;
+  presentation?: Pick<
+    CallPresentation,
+    'pluginId' | 'pluginVersion' | 'source' | 'title'
+  >;
   policyOutcome?: CallEvent['policyOutcome'];
   approvalStatus?: string;
   finalStatus?: CallEvent['finalStatus'];

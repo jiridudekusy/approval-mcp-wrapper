@@ -25,6 +25,9 @@ function publicUpstream(record: Upstream) {
     updatedAt: record.updatedAt,
     version: record.version,
     ...(record.pluginId === undefined ? {} : { pluginId: record.pluginId }),
+    ...(record.pluginVersion === undefined
+      ? {}
+      : { pluginVersion: record.pluginVersion }),
   };
 }
 
@@ -46,6 +49,7 @@ export async function registerUpstreamRoutes(
     credentialVault?: CredentialVault;
     onUpstreamsChanged?(): Promise<void>;
     discoverTools?(upstreamId: UpstreamId): Promise<ToolCatalog>;
+    plugins?: readonly Readonly<{ id: string; version: string }>[];
   },
 ): Promise<void> {
   app.get('/api/admin/upstreams', async (request, reply) => {
@@ -145,6 +149,7 @@ export async function registerUpstreamRoutes(
       allowPrivateNetwork?: unknown;
       credentials?: UpstreamCredentials;
       pluginId?: unknown;
+      pluginVersion?: unknown;
     };
     if (
       typeof body.alias !== 'string' ||
@@ -153,6 +158,22 @@ export async function registerUpstreamRoutes(
     ) {
       reply.code(400);
       return { error: { code: 'input.invalid', message: 'Invalid upstream', requestId: request.id } };
+    }
+    if (
+      (body.pluginId !== undefined || body.pluginVersion !== undefined) &&
+      !options.plugins?.some(
+        (plugin) =>
+          plugin.id === body.pluginId && plugin.version === body.pluginVersion,
+      )
+    ) {
+      reply.code(400);
+      return {
+        error: {
+          code: 'plugin.invalid_pin',
+          message: 'Invalid plugin pin',
+          requestId: request.id,
+        },
+      };
     }
     const id = randomUUID() as UpstreamId;
     const now = new Date().toISOString();
@@ -166,6 +187,9 @@ export async function registerUpstreamRoutes(
       updatedAt: now,
       version: 1,
       ...(typeof body.pluginId === 'string' ? { pluginId: body.pluginId } : {}),
+      ...(typeof body.pluginVersion === 'string'
+        ? { pluginVersion: body.pluginVersion }
+        : {}),
       ...(body.credentials === undefined
         ? {}
         : {
@@ -193,6 +217,8 @@ export async function registerUpstreamRoutes(
       url?: unknown;
       allowPrivateNetwork?: unknown;
       credentials?: UpstreamCredentials | null;
+      pluginId?: unknown;
+      pluginVersion?: unknown;
     };
     const current = options.state.read((state) => state.upstreams[id]);
     if (current === undefined) {
@@ -201,6 +227,27 @@ export async function registerUpstreamRoutes(
     }
     const record = current as unknown as Upstream;
     if (body.version !== record.version) return conflict(request, reply);
+    const pluginChanged =
+      body.pluginId !== undefined || body.pluginVersion !== undefined;
+    const removesPlugin =
+      body.pluginId === null && body.pluginVersion === null;
+    if (
+      pluginChanged &&
+      !removesPlugin &&
+      !options.plugins?.some(
+        (plugin) =>
+          plugin.id === body.pluginId && plugin.version === body.pluginVersion,
+      )
+    ) {
+      reply.code(400);
+      return {
+        error: {
+          code: 'plugin.invalid_pin',
+          message: 'Invalid plugin pin',
+          requestId: request.id,
+        },
+      };
+    }
     let updated: Upstream = {
       ...record,
       ...(typeof body.alias === 'string' ? { alias: body.alias } : {}),
@@ -211,6 +258,23 @@ export async function registerUpstreamRoutes(
       updatedAt: new Date().toISOString(),
       version: record.version + 1,
     };
+    if (removesPlugin) {
+      const {
+        pluginId: _removedPluginId,
+        pluginVersion: _removedPluginVersion,
+        ...withoutPlugin
+      } = updated;
+      updated = withoutPlugin;
+    } else if (
+      typeof body.pluginId === 'string' &&
+      typeof body.pluginVersion === 'string'
+    ) {
+      updated = {
+        ...updated,
+        pluginId: body.pluginId,
+        pluginVersion: body.pluginVersion,
+      };
+    }
     if (body.credentials === null) {
       const { credentials: _removed, ...withoutCredentials } = updated;
       updated = withoutCredentials;
