@@ -29,6 +29,32 @@ describe('server configuration', () => {
         APPROVAL_MCP_MASTER_KEY: masterKey,
       }).rpId,
     ).toBe('localhost');
+    expect(
+      loadConfig({
+        APPROVAL_MCP_PUBLIC_URL: 'http://localhost:3000',
+        APPROVAL_MCP_DATA_DIR: '/tmp/data',
+        APPROVAL_MCP_MASTER_KEY: masterKey,
+      }).vapidSubject,
+    ).toBe('mailto:approval-mcp@example.com');
+  });
+
+  it('accepts an explicit Web Push VAPID subject', () => {
+    expect(
+      loadConfig({
+        APPROVAL_MCP_PUBLIC_URL: 'https://approval.example.com',
+        APPROVAL_MCP_DATA_DIR: '/tmp/data',
+        APPROVAL_MCP_MASTER_KEY: masterKey,
+        APPROVAL_MCP_VAPID_SUBJECT: 'mailto:security@example.com',
+      }).vapidSubject,
+    ).toBe('mailto:security@example.com');
+    expect(() =>
+      loadConfig({
+        APPROVAL_MCP_PUBLIC_URL: 'https://approval.example.com',
+        APPROVAL_MCP_DATA_DIR: '/tmp/data',
+        APPROVAL_MCP_MASTER_KEY: masterKey,
+        APPROVAL_MCP_VAPID_SUBJECT: 'not-a-contact',
+      }),
+    ).toThrow('VAPID_SUBJECT');
   });
 });
 

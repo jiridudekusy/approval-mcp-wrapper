@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111827" />
+    <title>Web Push Playground</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" type="module"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="eyebrow">Samostatný PoC</div>
+        <h1>Web Push Playground</h1>
+        <p>
+          Ověření volitelného obsahu a akcí systémové notifikace bez Approval MCP.
+        </p>
+      </header>
+
+      <section class="card status-card" aria-labelledby="device-heading">
+        <div>
+          <h2 id="device-heading">Toto zařízení</h2>
+          <p id="support-status" class="muted">Kontroluji podporu…</p>
+        </div>
+        <div class="button-row">
+          <button id="subscribe-button" class="primary" type="button">Povolit notifikace</button>
+          <button id="unsubscribe-button" class="secondary" type="button" hidden>Odhlásit zařízení</button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="composer-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="composer-heading">Sestavit notifikaci</h2>
+            <p class="muted">Platforma může některý obsah nebo akce ignorovat — právě to testujeme.</p>
+          </div>
+          <span id="subscription-count" class="pill">0 zařízení</span>
+        </div>
+
+        <form id="notification-form">
+          <div class="grid two-columns">
+            <label>
+              Titulek
+              <input id="title" maxlength="100" required value="Nový požadavek ke schválení" />
+            </label>
+            <label>
+              HTTPS obrázek (volitelné)
+              <input id="image" type="url" placeholder="https://…" />
+            </label>
+          </div>
+
+          <label>
+            Text notifikace
+            <textarea id="body" maxlength="300" rows="3">Plugin chce provést operaci nad produkčními daty.</textarea>
+          </label>
+
+          <fieldset>
+            <legend>Volitelné akce</legend>
+            <p class="muted compact">Maximálně tři. Prázdné řádky se neposílají.</p>
+            <div id="actions" class="actions-list">
+              <div class="action-row">
+                <label>ID akce<input class="action-id" value="deny" pattern="[A-Za-z0-9_-]+" /></label>
+                <label>Popisek<input class="action-title" value="Zamítnout" maxlength="32" /></label>
+              </div>
+              <div class="action-row">
+                <label>ID akce<input class="action-id" value="approve_once" pattern="[A-Za-z0-9_-]+" /></label>
+                <label>Popisek<input class="action-title" value="Schválit jednou" maxlength="32" /></label>
+              </div>
+              <div class="action-row">
+                <label>ID akce<input class="action-id" value="details" pattern="[A-Za-z0-9_-]+" /></label>
+                <label>Popisek<input class="action-title" value="Zobrazit detail" maxlength="32" /></label>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Obsah detailu po otevření</legend>
+            <div class="grid detail-grid">
+              <label>
+                Zobrazení
+                <select id="detail-mode">
+                  <option value="text">Text</option>
+                  <option value="json" selected>JSON</option>
+                  <option value="key-value">Klíč / hodnota</option>
+                </select>
+              </label>
+              <label class="detail-content-label">
+                Obsah
+                <textarea id="detail-content" maxlength="1500" rows="8">{
+  "plugin": "demo",
+  "operation": "delete_records",
+  "scope": "production",
+  "count": 42
+}</textarea>
+              </label>
+            </div>
+          </fieldset>
+
+          <label>
+            Control token z terminálu
+            <input id="control-token" type="password" autocomplete="off" required />
+          </label>
+
+          <div class="send-row">
+            <button class="primary" type="submit">Odeslat na všechna přihlášená zařízení</button>
+            <output id="send-result" aria-live="polite"></output>
+          </div>
+        </form>
+      </section>
+
+      <section class="card" aria-labelledby="events-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="events-heading">Kliknuté akce</h2>
+            <p class="muted">Události drží server pouze v paměti.</p>
+          </div>
+          <button id="refresh-events" class="secondary" type="button">Obnovit</button>
+        </div>
+        <div id="event-list" class="empty-state">Zatím žádná akce.</div>
+      </section>
+    </main>
+  </body>
+</html>

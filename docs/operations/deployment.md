@@ -10,13 +10,28 @@ Required environment variables:
 - `APPROVAL_MCP_DATA_DIR`: absolute persistent directory; `/data` in the image.
 - `APPROVAL_MCP_MASTER_KEY`: canonical base64 encoding of 32 random bytes.
 
+Optional environment variables:
+
+- `APPROVAL_MCP_VAPID_SUBJECT`: a `mailto:` address or HTTPS URL identifying
+  the Web Push sender. It defaults to the public HTTPS origin. Loopback
+  development uses a reserved example address.
+
 Generate the master key with `openssl rand -base64 32`. Store it in a secret
-manager. Losing it makes encrypted upstream credentials unrecoverable. Do not
+manager. Losing it makes encrypted upstream credentials, Web Push
+subscriptions, and the generated VAPID private key unrecoverable. Do not
 put it in an image, Compose file, Git repository, or backup manifest.
 
 Map persistent storage to `/data`, publish port 3000 only to the reverse proxy,
 and forward the original host and scheme. The public URL fixes the WebAuthn RP
 ID and origin; changing its hostname requires registering a new passkey.
+
+Web Push VAPID keys are generated once and persisted under `/data`; the private
+key and every browser subscription are encrypted with the master key. A
+production deployment must use its public HTTPS URL for notifications. On
+iPhone and iPad, install the site to the Home Screen before enabling
+notifications. Registered devices can be reviewed and removed on the System
+page. Push payloads contain a generic alert, the approval ID, and an internal
+deep link; tool arguments and plugin presentation data remain on the server.
 
 The image runs as the unprivileged `node` user. Use a read-only root filesystem
 with `/data` as its writable volume. Probe `/health/live` for liveness and

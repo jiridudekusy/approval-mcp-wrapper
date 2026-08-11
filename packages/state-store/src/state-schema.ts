@@ -17,6 +17,7 @@ export const CONFIG_COLLECTION_NAMES = [
   'profiles',
   'profileRules',
   'tokenProfileAssignments',
+  'pushDevices',
 ] as const;
 
 export type ConfigCollectionName = (typeof CONFIG_COLLECTION_NAMES)[number];
@@ -38,6 +39,7 @@ export interface ConfigState {
   profiles: ConfigCollection;
   profileRules: ConfigCollection;
   tokenProfileAssignments: ConfigCollection;
+  pushDevices: ConfigCollection;
 }
 
 export type StateOperation =
@@ -78,6 +80,7 @@ export const configStateSchema = z.object({
   profiles: jsonRecordSchema.default({}),
   profileRules: jsonRecordSchema.default({}),
   tokenProfileAssignments: jsonRecordSchema.default({}),
+  pushDevices: jsonRecordSchema.default({}),
 });
 
 const stateOperationSchema = z.discriminatedUnion('type', [
@@ -119,6 +122,7 @@ export function createEmptyConfigState(): ConfigState {
     profiles: {},
     profileRules: {},
     tokenProfileAssignments: {},
+    pushDevices: {},
   };
 }
 

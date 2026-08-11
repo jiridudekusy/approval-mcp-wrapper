@@ -61,6 +61,7 @@ import {
 } from '@approval-mcp/policy';
 import { readiness } from './operations/health.js';
 import { startRetentionJob } from './operations/retention-job.js';
+import { PushNotificationService } from './push-notification-service.js';
 
 const config = loadConfig();
 const stateStore = await createConfigStateStore(config.dataDir);
@@ -75,6 +76,11 @@ const journal = await createCallJournal(
 );
 const sessions = new SessionService(new StateSessionRepository(stateStore));
 const credentialVault = new CredentialVault(config.masterKey);
+const pushNotifications = await PushNotificationService.create({
+  state: stateStore,
+  masterKey: config.masterKey,
+  vapidSubject: config.vapidSubject,
+});
 const configuredUpstreams = () =>
   stateStore.read((state) =>
     Object.values(state.upstreams).map((value) => value as unknown as Upstream),
@@ -165,11 +171,13 @@ const approvals = new ApprovalOrchestrator(
       grants: [],
       now: new Date().toISOString(),
     }).reasonCode === 'policy.explicit_deny',
-  (approval) =>
+  (approval) => {
     approvalBroker.publish({
       approvalId: approval.id,
       status: approval.status,
-    }),
+    });
+    void pushNotifications.notifyPending(approval).catch(() => undefined);
+  },
 );
 await approvals.interruptAll('server.restarted');
 const tokens = new TokenService(new StateStoreTokenRepository(stateStore));
@@ -387,6 +395,7 @@ await registerAdminRoutes(app, {
   historyBroker,
   journal,
   plugins: pluginRegistry.list(),
+  push: pushNotifications,
   onUpstreamsChanged: async () =>
     upstreams.replaceUpstreams(configuredUpstreams()),
   discoverTools: (upstreamId) => upstreams.refresh(upstreamId),

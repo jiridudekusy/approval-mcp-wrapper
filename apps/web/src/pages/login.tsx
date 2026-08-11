@@ -8,14 +8,52 @@ import { api, ApiError } from '../api/client.js';
 import { LanguageSwitch } from '../components/language-switch.js';
 import { Icon } from '../components/icon.js';
 import { useI18n } from '../i18n/i18n.js';
+import type { MessageKey } from '../i18n/en.js';
 import { useTheme } from '../theme/theme.js';
 import { useDialogLifecycle } from '../hooks/use-dialog-lifecycle.js';
+
+export function passkeyErrorMessageKey(error: unknown): MessageKey {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+  const name = error instanceof Error ? error.name : undefined;
+  if (code === 'ERROR_INVALID_DOMAIN' || code === 'ERROR_INVALID_RP_ID') {
+    return 'login.passkeyOriginFailed';
+  }
+  if (
+    code === 'ERROR_AUTHENTICATOR_MISSING_DISCOVERABLE_CREDENTIAL_SUPPORT' ||
+    code === 'ERROR_AUTHENTICATOR_MISSING_USER_VERIFICATION_SUPPORT' ||
+    code === 'ERROR_AUTHENTICATOR_NO_SUPPORTED_PUBKEYCREDPARAMS_ALG' ||
+    code === 'ERROR_AUTHENTICATOR_GENERAL_ERROR' ||
+    code === 'ERROR_AUTO_REGISTER_USER_VERIFICATION_FAILURE'
+  ) {
+    return 'login.passkeyAuthenticatorFailed';
+  }
+  if (code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED') {
+    return 'login.passkeyAlreadyRegistered';
+  }
+  if (
+    code === 'ERROR_CEREMONY_ABORTED' ||
+    code === 'ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY' ||
+    name === 'NotAllowedError' ||
+    name === 'AbortError'
+  ) {
+    return 'login.passkeyCancelled';
+  }
+  if (
+    error instanceof Error &&
+    error.message.toLowerCase().includes('not supported in this browser')
+  ) {
+    return 'login.passkeyUnsupported';
+  }
+  return 'login.failed';
+}
 
 export function Login({ onAuthenticated }: { onAuthenticated(csrf: string): void }) {
   const { t } = useI18n();
   const { theme, toggle } = useTheme();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [errorKey, setErrorKey] = useState<MessageKey>();
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [recoveryError, setRecoveryError] = useState(false);
@@ -33,7 +71,7 @@ export function Login({ onAuthenticated }: { onAuthenticated(csrf: string): void
 
   async function login() {
     setBusy(true);
-    setError(false);
+    setErrorKey(undefined);
     try {
       const options = await api<Parameters<typeof startAuthentication>[0]['optionsJSON']>(
         '/api/auth/login/options',
@@ -59,11 +97,11 @@ export function Login({ onAuthenticated }: { onAuthenticated(csrf: string): void
           );
           onAuthenticated(result.csrfToken);
           return;
-        } catch {
-          setError(true);
+        } catch (registrationError) {
+          setErrorKey(passkeyErrorMessageKey(registrationError));
         }
       } else {
-        setError(true);
+        setErrorKey(passkeyErrorMessageKey(loginError));
       }
     } finally {
       setBusy(false);
@@ -96,7 +134,7 @@ export function Login({ onAuthenticated }: { onAuthenticated(csrf: string): void
           <button className="text-button" type="button" onClick={() => setRecoveryOpen(true)}>
             {t('login.recovery')}
           </button>
-          {error && <p className="error" role="alert">{t('login.failed')}</p>}
+          {errorKey !== undefined && <p className="error" role="alert">{t(errorKey)}</p>}
         </div>
       </section>
       {recoveryOpen && <div className="modal-backdrop"><div ref={recoveryDialogRef} className="modal-card" role="dialog" aria-modal="true" aria-label={t('login.recovery')}><form className="token-form" onSubmit={(event) => void recover(event)}><h2>{t('login.recovery')}</h2><label>{t('login.recoveryCode')}<input autoFocus autoComplete="one-time-code" value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} /></label>{recoveryError && <p className="error" role="alert">{t('login.recoveryFailed')}</p>}<div className="modal-actions"><button type="button" onClick={closeRecovery}>{t('common.cancel')}</button><button className="primary" type="submit" disabled={busy || recoveryCode.trim() === ''}>{busy ? t('common.loading') : t('login.recoverySubmit')}</button></div></form></div></div>}

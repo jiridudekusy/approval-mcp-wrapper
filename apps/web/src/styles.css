@@ -2474,6 +2474,197 @@ pre,
   color: var(--muted);
 }
 
+.push-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  margin-top: 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+.push-card > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 22px;
+}
+
+.push-card > header h2,
+.push-device-heading h3 {
+  margin: 0;
+}
+
+.push-card > header p,
+.push-device-heading p {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+.push-card-icon,
+.push-device-icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--primary-ultra);
+  color: var(--primary-text);
+}
+
+.push-card-icon {
+  width: 44px;
+  height: 44px;
+}
+
+.push-registration {
+  display: grid;
+  grid-template-columns: minmax(220px, 420px) max-content;
+  align-items: end;
+  gap: 12px;
+  padding: 20px 22px 0;
+}
+
+.push-registration label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.push-hint,
+.push-feedback {
+  margin: 9px 22px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.push-feedback {
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+
+.push-feedback.success {
+  background: var(--pos-soft);
+  color: var(--positive);
+}
+
+.push-feedback.error {
+  background: var(--neg-soft);
+  color: var(--negative);
+}
+
+.push-device-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--line-soft);
+  margin-top: 20px;
+  padding: 18px 22px 12px;
+}
+
+.push-device-heading > span {
+  min-width: 28px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  padding: 3px 8px;
+  color: var(--muted-strong);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.push-empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 22px 22px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  padding: 18px;
+  color: var(--muted);
+}
+
+.push-empty strong {
+  display: block;
+  color: var(--fg);
+}
+
+.push-empty p {
+  margin: 2px 0 0;
+}
+
+.push-device-list {
+  border-top: 1px solid var(--line-soft);
+}
+
+.push-device-list article {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 15px 22px;
+}
+
+.push-device-list article:last-child {
+  border-bottom: 0;
+}
+
+.push-device-icon {
+  width: 38px;
+  height: 38px;
+}
+
+.push-device-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.push-device-copy strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-strong);
+}
+
+.push-device-copy strong small {
+  border-radius: 999px;
+  background: var(--primary-ultra);
+  padding: 2px 7px;
+  color: var(--primary-text);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.push-device-copy > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.push-device-copy > .push-failure {
+  color: var(--negative);
+}
+
+.push-remove-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.push-remove-confirm > span {
+  color: var(--muted-strong);
+  font-size: 12px;
+}
+
 .service-list {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -2936,6 +3127,32 @@ pre,
   .page-header > button,
   .page-header .export-actions {
     align-self: flex-start;
+  }
+
+  .push-registration {
+    grid-template-columns: 1fr;
+  }
+
+  .push-registration > button {
+    width: 100%;
+  }
+
+  .push-device-list article {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .push-device-list article > .danger-link,
+  .push-remove-confirm {
+    grid-column: 1 / -1;
+  }
+
+  .push-device-list article > .danger-link {
+    justify-self: start;
+  }
+
+  .push-remove-confirm {
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .form-grid,

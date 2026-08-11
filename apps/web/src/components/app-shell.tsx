@@ -5,8 +5,9 @@ import { useI18n, type Locale } from '../i18n/i18n.js';
 import { useTheme } from '../theme/theme.js';
 import { Icon, type IconName } from './icon.js';
 import { LanguageSwitch } from './language-switch.js';
+import { pagePaths, type Page } from '../routes.js';
 
-export type Page = 'access' | 'history' | 'inbox' | 'system' | 'upstreams';
+export type { Page } from '../routes.js';
 const nav: { page: Page; key: `nav.${Page}`; icon: IconName }[] = [
   { page: 'inbox', key: 'nav.inbox', icon: 'inbox' },
   { page: 'history', key: 'nav.history', icon: 'arrow-history' },
@@ -67,6 +68,7 @@ export function AppShell({ page, csrfToken, onNavigate, onLogout, children }: {
       className={page === item.page ? 'selected' : ''}
       aria-current={page === item.page ? 'page' : undefined}
       onClick={() => onNavigate(item.page)}
+      data-route={pagePaths[item.page]}
     >
       <Icon name={item.icon} />
       <span>{t(item.key)}</span>
@@ -118,4 +120,6 @@ export function AppShell({ page, csrfToken, onNavigate, onLogout, children }: {
   );
 }
 
-export function localePath(locale: Locale, page: Page): string { return `#/${locale}/${page}`; }
+export function localePath(locale: Locale, page: Page): string {
+  return `${pagePaths[page]}?locale=${locale}`;
+}

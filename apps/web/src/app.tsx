@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   AUTHENTICATION_LOST_EVENT,
   clearClientAuthentication,
   validateSession,
 } from './api/client.js';
-import { AppShell, type Page } from './components/app-shell.js';
+import { AppShell } from './components/app-shell.js';
 import { useI18n } from './i18n/i18n.js';
 import { Inbox } from './pages/inbox.js';
 import { Login } from './pages/login.js';
@@ -13,6 +13,22 @@ import { Upstreams } from './pages/upstreams.js';
 import { Access } from './pages/access.js';
 import { System } from './pages/system.js';
 import { History } from './pages/history.js';
+import {
+  routeFromLocation,
+  routePath,
+  type AppRoute,
+  type Page,
+} from './routes.js';
+
+export function approvalIdFromServiceWorkerMessage(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const message = value as { type?: unknown; approvalId?: unknown };
+  return message.type === 'approval-mcp:open-approval' &&
+    typeof message.approvalId === 'string' &&
+    message.approvalId.length > 0
+    ? message.approvalId
+    : undefined;
+}
 
 function csrfTokenFromCookie(): string | undefined {
   for (const part of globalThis.document?.cookie.split(';') ?? []) {
@@ -39,7 +55,23 @@ export function App() {
   const [authentication, setAuthentication] = useState<AuthenticationState>(
     initialAuthenticationState,
   );
-  const [page, setPage] = useState<Page>('inbox');
+  const [route, setRoute] = useState<AppRoute>(() =>
+    routeFromLocation(globalThis.location),
+  );
+  const navigate = useCallback((nextRoute: AppRoute, replace = false) => {
+    const path = routePath(nextRoute);
+    if (`${globalThis.location.pathname}${globalThis.location.search}` !== path) {
+      globalThis.history[replace ? 'replaceState' : 'pushState'](null, '', path);
+    }
+    setRoute(nextRoute);
+  }, []);
+
+  useEffect(() => {
+    navigate(routeFromLocation(globalThis.location), true);
+    const restoreRoute = () => setRoute(routeFromLocation(globalThis.location));
+    globalThis.addEventListener('popstate', restoreRoute);
+    return () => globalThis.removeEventListener('popstate', restoreRoute);
+  }, [navigate]);
 
   useEffect(() => {
     if (authentication.status !== 'checking') return;
@@ -76,6 +108,20 @@ export function App() {
       );
   }, []);
 
+  useEffect(() => {
+    const openApproval = (event: MessageEvent<unknown>) => {
+      const approvalId = approvalIdFromServiceWorkerMessage(event.data);
+      if (approvalId === undefined) return;
+      navigate({ page: 'inbox', approvalId });
+    };
+    globalThis.navigator?.serviceWorker?.addEventListener('message', openApproval);
+    return () =>
+      globalThis.navigator?.serviceWorker?.removeEventListener(
+        'message',
+        openApproval,
+      );
+  }, [navigate]);
+
   if (authentication.status === 'checking') {
     return (
       <main className="session-check" aria-busy="true">
@@ -94,16 +140,31 @@ export function App() {
     );
   }
   const { csrfToken } = authentication;
+  const page: Page = route.page;
   return (
-    <AppShell page={page} csrfToken={csrfToken} onNavigate={setPage} onLogout={() => setAuthentication({ status: 'anonymous' })}>
+    <AppShell
+      page={page}
+      csrfToken={csrfToken}
+      onNavigate={(nextPage) => navigate({ page: nextPage })}
+      onLogout={() => setAuthentication({ status: 'anonymous' })}
+    >
       {page === 'inbox' ? (
-        <Inbox csrfToken={csrfToken} />
+        <Inbox
+          csrfToken={csrfToken}
+          {...(route.approvalId === undefined
+            ? {}
+            : { targetApprovalId: route.approvalId })}
+          onOpenApproval={(approvalId) =>
+            navigate({ page: 'inbox', approvalId })
+          }
+          onCloseApproval={() => navigate({ page: 'inbox' }, true)}
+        />
       ) : page === 'upstreams' ? (
         <Upstreams csrfToken={csrfToken} />
       ) : page === 'access' ? (
         <Access csrfToken={csrfToken} />
       ) : page === 'system' ? (
-        <System />
+        <System csrfToken={csrfToken} />
       ) : page === 'history' ? (
         <History />
       ) : (

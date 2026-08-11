@@ -1,0 +1,19 @@
+{
+  "name": "Web Push Playground",
+  "short_name": "Push PoC",
+  "description": "Standalone Web Push content and actions proof of concept",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

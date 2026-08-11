@@ -13,6 +13,7 @@ import { registerHistoryRoutes } from './history-routes.js';
 import { registerGrantRoutes } from './grant-routes.js';
 import { registerPolicyRoutes } from './policy-routes.js';
 import { registerProfileRoutes } from './profile-routes.js';
+import { registerPushRoutes, type PushAdminService } from './push-routes.js';
 import { registerSystemRoutes } from './system-routes.js';
 import { registerUpstreamRoutes } from './upstream-routes.js';
 import {
@@ -34,6 +35,7 @@ export interface AdminRouteOptions {
     version: string;
     normalizationVersion: number;
   }>[];
+  push?: PushAdminService;
   onUpstreamsChanged?(): Promise<void>;
   discoverTools?(upstreamId: UpstreamId): Promise<ToolCatalog>;
 }
@@ -55,6 +57,7 @@ export async function registerAdminRoutes(
     ...options,
     historyBroker: options.historyBroker ?? new HistoryEventBroker(),
   });
+  await registerPushRoutes(app, options);
   await registerSystemRoutes(app, options);
 }
 

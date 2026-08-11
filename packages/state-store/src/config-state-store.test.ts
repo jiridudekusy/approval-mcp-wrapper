@@ -48,10 +48,12 @@ describe('ConfigStateStore', () => {
       profiles: state.profiles,
       profileRules: state.profileRules,
       tokenProfileAssignments: state.tokenProfileAssignments,
+      pushDevices: state.pushDevices,
     }))).toEqual({
       profiles: {},
       profileRules: {},
       tokenProfileAssignments: {},
+      pushDevices: {},
     });
   });
 
