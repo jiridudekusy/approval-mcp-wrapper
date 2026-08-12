@@ -13,7 +13,7 @@
     "@approval-mcp/state-store": "0.0.0",
     "@approval-mcp/upstream": "0.0.0",
     "@simplewebauthn/server": "13.3.2",
-    "fastify": "5.10.0",
+    "fastify": "5.11.3",
     "zod": "4.4.3"
   }
 }
