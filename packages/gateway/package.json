@@ -18,6 +18,6 @@
     "@approval-mcp/state-store": "0.0.0",
     "@approval-mcp/upstream": "0.0.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   }
 }
