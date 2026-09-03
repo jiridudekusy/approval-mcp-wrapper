@@ -1,6 +1,6 @@
 # Initial Runtime Package Admission
 
-Assessment date: 2026-07-28
+Assessment date: 2026-09-03
 
 ## @modelcontextprotocol/sdk@1.30.0
 
@@ -12,9 +12,9 @@ Assessment date: 2026-07-28
 - Security: must pass the lockfile npm audit and CI advisory gate before merge.
 - Rationale: official client/server implementation of MCP Streamable HTTP and protocol negotiation.
 
-## fastify@5.10.0
+## fastify@5.12.1
 
-- Latest release: 2026-07-09.
+- Latest release: 2026-08-18.
 - Adoption: approximately 10 million weekly downloads and more than 5,000 dependents.
 - Maintainers: active OpenJS Foundation project with multiple maintainers.
 - Runtime dependencies: 15.
