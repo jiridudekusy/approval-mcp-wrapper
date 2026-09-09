@@ -12,10 +12,10 @@
     "@approval-mcp/policy": "0.0.0",
     "@approval-mcp/state-store": "0.0.0",
     "@approval-mcp/upstream": "0.0.0",
-    "@simplewebauthn/server": "13.3.2",
-    "fastify": "5.12.1",
+    "@simplewebauthn/server": "14.0.1",
+    "fastify": "5.12.3",
     "web-push": "3.6.7",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@types/web-push": "3.6.4"
