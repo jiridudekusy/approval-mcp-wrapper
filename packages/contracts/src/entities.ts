@@ -34,6 +34,9 @@ export interface EncryptedCredentialEnvelope {
 export interface Upstream extends VersionedRecord {
   id: UpstreamId;
   alias: string;
+  displayName?: string;
+  description?: string;
+  metadata?: Record<string, string>;
   url: string;
   credentials?: EncryptedCredentialEnvelope;
   pluginId?: string;

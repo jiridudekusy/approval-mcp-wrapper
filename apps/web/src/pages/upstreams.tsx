@@ -122,7 +122,17 @@ export function Upstreams({ csrfToken }: { csrfToken: string }) {
         {items.map((item) => (
           <article className="upstream-record" key={item.id}>
             <span className="record-icon"><Icon name="database" /></span>
-            <div className="record-identity"><h2>{item.alias}</h2><code>{item.url}</code></div>
+            <div className="record-identity">
+              <h2 className={item.displayName === undefined ? 'technical-name' : undefined}>{item.displayName ?? item.alias}</h2>
+              {item.displayName !== undefined && <code className="record-alias">{item.alias}</code>}
+              {item.description !== undefined && <p>{item.description}</p>}
+              <code>{item.url}</code>
+              {item.metadata !== undefined && (
+                <dl className="record-metadata">
+                  {Object.entries(item.metadata).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}
+                </dl>
+              )}
+            </div>
             <div className="record-badges">
               {item.allowPrivateNetwork && <span className="private-badge"><Icon name="alert" />{t('upstreams.privateBadge')}</span>}
               {item.credentialsConfigured && <span><Icon name="key" />{t('upstreams.authBadge')}</span>}

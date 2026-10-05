@@ -9,9 +9,10 @@ import type {
 } from '@approval-mcp/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 
 import {
   buildTokenCatalog,
@@ -243,7 +244,7 @@ describe('validateOrigin', () => {
 });
 
 describe('Streamable HTTP MCP integration', () => {
-  it('authenticates, lists a scoped catalog, and hands off a tool call', async () => {
+  it('serves the same authenticated gateway over legacy and modern MCP', async () => {
     const coordinator = {
       call: vi.fn(async (input: { arguments: Record<string, unknown> }) => {
         if (input.arguments['denied'] === true) {
@@ -285,67 +286,79 @@ describe('Streamable HTTP MCP integration', () => {
     if (address === null || typeof address === 'string') {
       throw new Error('Expected a TCP server address');
     }
-    const transport = new StreamableHTTPClientTransport(
-      new URL(`http://127.0.0.1:${address.port}/mcp`),
-      {
-        requestInit: {
-          headers: {
-            authorization: 'Bearer valid',
-            origin: 'https://admin.example.test',
-          },
-        },
-      },
-    );
-    const client = new Client(
-      { name: 'gateway-test', version: '1.0.0' },
-      { capabilities: {} },
-    );
     try {
-      await client.connect(transport as Transport);
-      await expect(client.listTools()).resolves.toMatchObject({
-        tools: [
+      for (const era of ['legacy', 'modern'] as const) {
+        const transport = new StreamableHTTPClientTransport(
+          new URL(`http://127.0.0.1:${address.port}/mcp`),
           {
-            name: TOOL_INSPECTION_TOOL_NAME,
-            annotations: { readOnlyHint: true },
+            requestInit: {
+              headers: {
+                authorization: 'Bearer valid',
+                origin: 'https://admin.example.test',
+              },
+            },
           },
-          { name: 'signal__list_groups' },
-        ],
-      });
-      await expect(
-        client.callTool({
-          name: TOOL_INSPECTION_TOOL_NAME,
-          arguments: { toolName: 'signal__list_groups', arguments: {} },
-        }),
-      ).resolves.toMatchObject({
-        structuredContent: {
-          toolName: 'signal__list_groups',
-          approvalRequired: true,
-          approvalTimeoutSeconds: 300,
-          toolCallTimeoutSeconds: 1_800,
-        },
-      });
-      await expect(
-        client.callTool({ name: 'signal__list_groups', arguments: {} }),
-      ).resolves.toMatchObject({
-        content: [{ type: 'text', text: 'ok' }],
-      });
-      await expect(
-        client.callTool({
-          name: 'signal__list_groups',
-          arguments: { denied: true },
-        }),
-      ).resolves.toMatchObject({
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: 'Tool call denied: The selected conversation is private.',
-          },
-        ],
-      });
-      expect(coordinator.call).toHaveBeenCalledTimes(2);
+        );
+        const client = new Client(
+          { name: `gateway-${era}-test`, version: '1.0.0' },
+          era === 'modern'
+            ? {
+                capabilities: {},
+                versionNegotiation: { mode: 'auto' },
+              }
+            : { capabilities: {} },
+        );
+        try {
+          await client.connect(transport);
+          expect(client.getProtocolEra()).toBe(era);
+          await expect(client.listTools()).resolves.toMatchObject({
+            tools: [
+              {
+                name: TOOL_INSPECTION_TOOL_NAME,
+                annotations: { readOnlyHint: true },
+              },
+              { name: 'signal__list_groups' },
+            ],
+          });
+          await expect(
+            client.callTool({
+              name: TOOL_INSPECTION_TOOL_NAME,
+              arguments: { toolName: 'signal__list_groups', arguments: {} },
+            }),
+          ).resolves.toMatchObject({
+            structuredContent: {
+              toolName: 'signal__list_groups',
+              approvalRequired: true,
+              approvalTimeoutSeconds: 300,
+              toolCallTimeoutSeconds: 1_800,
+            },
+          });
+          await expect(
+            client.callTool({ name: 'signal__list_groups', arguments: {} }),
+          ).resolves.toMatchObject({
+            content: [{ type: 'text', text: 'ok' }],
+          });
+          await expect(
+            client.callTool({
+              name: 'signal__list_groups',
+              arguments: { denied: true },
+            }),
+          ).resolves.toMatchObject({
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: 'Tool call denied: The selected conversation is private.',
+              },
+            ],
+          });
+        } finally {
+          await client.close();
+        }
+      }
+      expect(coordinator.call).toHaveBeenCalledTimes(4);
     } finally {
-      await client.close();
+      await handler.close();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error === undefined ? resolve() : reject(error))),
       );

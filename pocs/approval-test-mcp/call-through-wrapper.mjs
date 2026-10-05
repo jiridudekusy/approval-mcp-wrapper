@@ -1,5 +1,7 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 
 const wrapperUrl = process.env.APPROVAL_MCP_URL;
 const token = process.env.APPROVAL_MCP_TOKEN;
@@ -8,7 +10,13 @@ if (wrapperUrl === undefined || token === undefined) {
 }
 
 const url = new URL(wrapperUrl);
-const client = new Client({ name: 'approval-test-client', version: '1.0.0' });
+const client = new Client(
+  { name: 'approval-test-client', version: '1.0.0' },
+  {
+    capabilities: {},
+    versionNegotiation: { mode: 'auto' },
+  },
+);
 const transport = new StreamableHTTPClientTransport(url, {
   requestInit: {
     headers: {

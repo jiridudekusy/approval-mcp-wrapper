@@ -13,10 +13,58 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
 
+const MAX_DISPLAY_NAME_LENGTH = 120;
+const MAX_DESCRIPTION_LENGTH = 1_000;
+const MAX_METADATA_ENTRIES = 20;
+const MAX_METADATA_KEY_LENGTH = 64;
+const MAX_METADATA_VALUE_LENGTH = 500;
+const METADATA_KEY_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+const FORBIDDEN_METADATA_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const invalidInput = Symbol('invalidInput');
+
+function optionalText(value: unknown, maxLength: number) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') return invalidInput;
+  const normalized = value.trim();
+  if (normalized.length > maxLength) return invalidInput;
+  return normalized === '' ? undefined : normalized;
+}
+
+function upstreamMetadata(value: unknown) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) return invalidInput;
+  const entries = Object.entries(value);
+  if (entries.length > MAX_METADATA_ENTRIES) return invalidInput;
+  const metadata: Record<string, string> = {};
+  for (const [rawKey, rawValue] of entries) {
+    const key = rawKey.trim();
+    if (
+      typeof rawValue !== 'string' ||
+      key.length === 0 ||
+      key.length > MAX_METADATA_KEY_LENGTH ||
+      !METADATA_KEY_PATTERN.test(key) ||
+      FORBIDDEN_METADATA_KEYS.has(key) ||
+      rawValue.length > MAX_METADATA_VALUE_LENGTH ||
+      Object.hasOwn(metadata, key)
+    ) {
+      return invalidInput;
+    }
+    metadata[key] = rawValue.trim();
+  }
+  return entries.length === 0 ? undefined : metadata;
+}
+
 function publicUpstream(record: Upstream) {
   return {
     id: record.id,
     alias: record.alias,
+    ...(record.displayName === undefined
+      ? {}
+      : { displayName: record.displayName }),
+    ...(record.description === undefined
+      ? {}
+      : { description: record.description }),
+    ...(record.metadata === undefined ? {} : { metadata: record.metadata }),
     url: record.url,
     allowPrivateNetwork: record.allowPrivateNetwork,
     credentialsConfigured: record.credentials !== undefined,
@@ -150,11 +198,26 @@ export async function registerUpstreamRoutes(
       credentials?: UpstreamCredentials;
       pluginId?: unknown;
       pluginVersion?: unknown;
+      displayName?: unknown;
+      description?: unknown;
+      metadata?: unknown;
     };
+    const displayName = optionalText(
+      body.displayName,
+      MAX_DISPLAY_NAME_LENGTH,
+    );
+    const description = optionalText(
+      body.description,
+      MAX_DESCRIPTION_LENGTH,
+    );
+    const metadata = upstreamMetadata(body.metadata);
     if (
       typeof body.alias !== 'string' ||
       typeof body.url !== 'string' ||
-      typeof body.allowPrivateNetwork !== 'boolean'
+      typeof body.allowPrivateNetwork !== 'boolean' ||
+      displayName === invalidInput ||
+      description === invalidInput ||
+      metadata === invalidInput
     ) {
       reply.code(400);
       return { error: { code: 'input.invalid', message: 'Invalid upstream', requestId: request.id } };
@@ -180,6 +243,9 @@ export async function registerUpstreamRoutes(
     const record: Upstream = {
       id,
       alias: body.alias,
+      ...(displayName === undefined ? {} : { displayName }),
+      ...(description === undefined ? {} : { description }),
+      ...(metadata === undefined ? {} : { metadata }),
       url: new URL(body.url).href,
       allowPrivateNetwork: body.allowPrivateNetwork,
       schemaVersion: 1,
@@ -219,6 +285,9 @@ export async function registerUpstreamRoutes(
       credentials?: UpstreamCredentials | null;
       pluginId?: unknown;
       pluginVersion?: unknown;
+      displayName?: unknown;
+      description?: unknown;
+      metadata?: unknown;
     };
     const current = options.state.read((state) => state.upstreams[id]);
     if (current === undefined) {
@@ -227,6 +296,29 @@ export async function registerUpstreamRoutes(
     }
     const record = current as unknown as Upstream;
     if (body.version !== record.version) return conflict(request, reply);
+    const displayName = optionalText(
+      body.displayName,
+      MAX_DISPLAY_NAME_LENGTH,
+    );
+    const description = optionalText(
+      body.description,
+      MAX_DESCRIPTION_LENGTH,
+    );
+    const metadata = upstreamMetadata(body.metadata);
+    if (
+      displayName === invalidInput ||
+      description === invalidInput ||
+      metadata === invalidInput
+    ) {
+      reply.code(400);
+      return {
+        error: {
+          code: 'input.invalid',
+          message: 'Invalid upstream metadata',
+          requestId: request.id,
+        },
+      };
+    }
     const pluginChanged =
       body.pluginId !== undefined || body.pluginVersion !== undefined;
     const removesPlugin =
@@ -258,6 +350,30 @@ export async function registerUpstreamRoutes(
       updatedAt: new Date().toISOString(),
       version: record.version + 1,
     };
+    if (body.displayName !== undefined) {
+      if (displayName === undefined) {
+        const { displayName: _removed, ...withoutDisplayName } = updated;
+        updated = withoutDisplayName;
+      } else {
+        updated = { ...updated, displayName };
+      }
+    }
+    if (body.description !== undefined) {
+      if (description === undefined) {
+        const { description: _removed, ...withoutDescription } = updated;
+        updated = withoutDescription;
+      } else {
+        updated = { ...updated, description };
+      }
+    }
+    if (body.metadata !== undefined) {
+      if (metadata === undefined) {
+        const { metadata: _removed, ...withoutMetadata } = updated;
+        updated = withoutMetadata;
+      } else {
+        updated = { ...updated, metadata };
+      }
+    }
     if (removesPlugin) {
       const {
         pluginId: _removedPluginId,

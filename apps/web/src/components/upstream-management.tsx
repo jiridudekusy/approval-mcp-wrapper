@@ -2,10 +2,19 @@ import { useState, type FormEvent } from 'react';
 
 import { api } from '../api/client.js';
 import { useI18n } from '../i18n/i18n.js';
+import {
+  metadataRecord,
+  metadataRows,
+  UpstreamMetadataEditor,
+  type UpstreamMetadataRow,
+} from './upstream-metadata-editor.js';
 
 export interface ManagedUpstream {
   id: string;
   alias: string;
+  displayName?: string;
+  description?: string;
+  metadata?: Record<string, string>;
   url: string;
   allowPrivateNetwork: boolean;
   credentialsConfigured: boolean;
@@ -35,6 +44,11 @@ export function UpstreamEditForm({
 }) {
   const { t } = useI18n();
   const [alias, setAlias] = useState(upstream.alias);
+  const [displayName, setDisplayName] = useState(upstream.displayName ?? '');
+  const [description, setDescription] = useState(upstream.description ?? '');
+  const [metadata, setMetadata] = useState<UpstreamMetadataRow[]>(() =>
+    metadataRows(upstream.metadata),
+  );
   const [url, setUrl] = useState(upstream.url);
   const [privateNetwork, setPrivateNetwork] = useState(
     upstream.allowPrivateNetwork,
@@ -61,6 +75,9 @@ export function UpstreamEditForm({
           body: JSON.stringify({
             version: upstream.version,
             alias,
+            displayName: displayName.trim() === '' ? null : displayName,
+            description: description.trim() === '' ? null : description,
+            metadata: metadataRecord(metadata),
             url,
             allowPrivateNetwork: privateNetwork,
             ...(pluginPin === ''
@@ -96,6 +113,16 @@ export function UpstreamEditForm({
       </div>
       <div className="form-grid">
         <label className="field">
+          <span>{t('upstreams.displayName')}</span>
+          <input
+            maxLength={120}
+            placeholder={t('upstreams.displayNamePlaceholder')}
+            value={displayName}
+            onChange={(event) => setDisplayName(event.target.value)}
+          />
+          <small>{t('upstreams.displayNameHint')}</small>
+        </label>
+        <label className="field">
           <span>{t('upstreams.alias')}</span>
           <input
             required
@@ -104,7 +131,7 @@ export function UpstreamEditForm({
             onChange={(event) => setAlias(event.target.value)}
           />
         </label>
-        <label className="field">
+        <label className="field field-wide">
           <span>{t('upstreams.url')}</span>
           <input
             required
@@ -113,6 +140,17 @@ export function UpstreamEditForm({
             onChange={(event) => setUrl(event.target.value)}
           />
         </label>
+        <label className="field field-wide">
+          <span>{t('upstreams.description')}</span>
+          <textarea
+            maxLength={1000}
+            rows={3}
+            placeholder={t('upstreams.descriptionPlaceholder')}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </label>
+        <UpstreamMetadataEditor rows={metadata} onChange={setMetadata} />
         <label className="field field-wide">
           <span>{t('upstreams.replaceCredential')}</span>
           <input

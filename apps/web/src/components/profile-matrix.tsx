@@ -42,7 +42,7 @@ function StatePill({ outcome, inherited }: { outcome: RuleOutcome | undefined; i
 }
 
 export function ProfileMatrix({ upstreams, catalogs, rules, busy, onSetRule, onSetRules, onRemoveRule }: {
-  upstreams: readonly { id: string; alias: string }[];
+  upstreams: readonly { id: string; alias: string; displayName?: string }[];
   catalogs: Readonly<Record<string, ToolCatalogView | undefined>>;
   rules: readonly ProfileRuleView[];
   busy: boolean;
@@ -93,7 +93,7 @@ export function ProfileMatrix({ upstreams, catalogs, rules, busy, onSetRule, onS
       }
       return <section className="profile-server" key={upstream.id}>
         <div className="profile-server-header">
-          <button type="button" className="server-toggle" aria-expanded={isOpen} onClick={() => setExpanded((current) => ({ ...current, [upstream.id]: !isOpen }))}><Icon name={isOpen ? 'chevron-down' : 'chevron-right'} /><Icon name="database" /><code>{upstream.alias}</code><span>{formatNumber(catalogs[upstream.id]?.tools.length ?? 0)} {t('profiles.tools')}</span></button>
+          <button type="button" className="server-toggle" aria-expanded={isOpen} onClick={() => setExpanded((current) => ({ ...current, [upstream.id]: !isOpen }))}><Icon name={isOpen ? 'chevron-down' : 'chevron-right'} /><Icon name="database" /><span className="server-name"><strong>{upstream.displayName ?? upstream.alias}</strong>{upstream.displayName !== undefined && <code>{upstream.alias}</code>}</span><span>{formatNumber(catalogs[upstream.id]?.tools.length ?? 0)} {t('profiles.tools')}</span></button>
           <span className="server-summary">{counts.allow} {t('profiles.allowedShort')} · {counts.require_approval} {t('profiles.approvalShort')} · {counts.deny} {t('profiles.deniedShort')} · {toolRules.length} {t('profiles.overridesShort')}</span>
           <span className="all-tools-label">{t('profiles.allTools')}</span>
           <Segments value={serverRule?.outcome ?? ''} disabled={busy} clearLabel={t('profiles.notSet')} onChange={(value) => value === '' ? serverRule && onRemoveRule(serverRule) : onSetRule(upstream.id, undefined, value)} />

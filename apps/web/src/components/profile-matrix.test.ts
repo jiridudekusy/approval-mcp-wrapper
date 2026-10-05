@@ -15,7 +15,7 @@ describe('profile tool matrix', () => {
         I18nProvider,
         null,
         createElement(ProfileMatrix, {
-          upstreams: [{ id: 'signal', alias: 'Signal MCP' }],
+          upstreams: [{ id: 'signal', alias: 'signal_work', displayName: 'Work messages' }],
           catalogs: {
             signal: {
               upstreamId: 'signal',
@@ -49,7 +49,8 @@ describe('profile tool matrix', () => {
       ),
     );
 
-    expect(html).toContain('Signal MCP');
+    expect(html).toContain('Work messages');
+    expect(html).toContain('signal_work');
     expect(html).toContain('All tools');
     expect(html).toContain('get_messages');
     expect(html).toContain('send_message');

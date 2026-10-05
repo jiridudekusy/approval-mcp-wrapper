@@ -75,4 +75,16 @@ describe('MinutesApprovalPlugin', () => {
     expect(result.sections[0]?.risk).toBe('danger');
     expect(result.proposedScopes).toEqual([]);
   });
+
+  it('marks group termination as dangerous and never offers a reusable scope', async () => {
+    const result = await new MinutesApprovalPlugin().describe({
+      upstreamId: 'minutes-id',
+      upstreamAlias: 'minutes',
+      toolName: 'terminate_group',
+      arguments: { groupId: 'family-id' },
+    });
+
+    expect(result.sections[0]?.risk).toBe('danger');
+    expect(result.proposedScopes).toEqual([]);
+  });
 });

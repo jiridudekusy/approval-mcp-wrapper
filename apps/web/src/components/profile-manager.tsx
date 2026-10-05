@@ -27,7 +27,7 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
   csrfToken: string;
   profiles: readonly ProfileView[];
   tokens: readonly ProfileTokenView[];
-  upstreams: readonly { id: string; alias: string }[];
+  upstreams: readonly { id: string; alias: string; displayName?: string }[];
   onChanged(): void;
 }) {
   const { t } = useI18n();

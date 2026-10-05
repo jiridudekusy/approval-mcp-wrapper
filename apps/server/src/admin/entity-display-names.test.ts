@@ -14,8 +14,14 @@ describe('entityDisplayNames', () => {
     state.upstreams['upstream-1'] = {
       id: 'upstream-1',
       alias: 'Signal',
+      displayName: 'Work messages',
     };
 
+    expect(entityDisplayNames(state, 'token-1', 'upstream-1')).toEqual({
+      tokenLabel: 'Claude Code',
+      upstreamAlias: 'Work messages',
+    });
+    delete (state.upstreams['upstream-1'] as { displayName?: string }).displayName;
     expect(entityDisplayNames(state, 'token-1', 'upstream-1')).toEqual({
       tokenLabel: 'Claude Code',
       upstreamAlias: 'Signal',

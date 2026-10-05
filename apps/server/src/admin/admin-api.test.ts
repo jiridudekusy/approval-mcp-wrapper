@@ -958,7 +958,7 @@ describe('admin API', () => {
     expect(response.body).not.toContain('secret connection detail');
   });
 
-  it('edits upstream fields while preserving or explicitly removing credentials', async () => {
+  it('edits upstream details and metadata while preserving or explicitly removing credentials', async () => {
     const { app, authHeaders } = await fixture();
     const created = await app.inject({
       method: 'POST',
@@ -966,12 +966,20 @@ describe('admin API', () => {
       headers: authHeaders,
       payload: {
         alias: 'signal',
+        displayName: 'Work messages',
+        description: 'Primary work account',
+        metadata: { account: 'work', owner: 'Jiri' },
         url: 'https://signal.example/mcp',
         allowPrivateNetwork: false,
         credentials: { authorization: 'Bearer secret' },
       },
     });
     const upstream = created.json<{ id: string; version: number }>();
+    expect(created.json()).toMatchObject({
+      displayName: 'Work messages',
+      description: 'Primary work account',
+      metadata: { account: 'work', owner: 'Jiri' },
+    });
 
     const preserved = await app.inject({
       method: 'PUT',
@@ -980,6 +988,9 @@ describe('admin API', () => {
       payload: {
         version: upstream.version,
         alias: 'signal-home',
+        displayName: 'Private messages',
+        description: 'Personal account',
+        metadata: { account: 'private' },
         url: 'https://signal.example/v2/mcp',
         allowPrivateNetwork: true,
       },
@@ -987,6 +998,9 @@ describe('admin API', () => {
     expect(preserved.statusCode).toBe(200);
     expect(preserved.json()).toMatchObject({
       alias: 'signal-home',
+      displayName: 'Private messages',
+      description: 'Personal account',
+      metadata: { account: 'private' },
       allowPrivateNetwork: true,
       credentialsConfigured: true,
     });
@@ -997,11 +1011,36 @@ describe('admin API', () => {
       headers: authHeaders,
       payload: {
         version: preserved.json<{ version: number }>().version,
+        displayName: null,
+        description: null,
+        metadata: null,
         credentials: null,
       },
     });
     expect(removed.statusCode).toBe(200);
     expect(removed.json()).toMatchObject({ credentialsConfigured: false });
+    expect(removed.json()).not.toHaveProperty('displayName');
+    expect(removed.json()).not.toHaveProperty('description');
+    expect(removed.json()).not.toHaveProperty('metadata');
+  });
+
+  it('rejects malformed or oversized upstream metadata', async () => {
+    const { app, authHeaders } = await fixture();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/upstreams',
+      headers: authHeaders,
+      payload: {
+        alias: 'mail',
+        displayName: 'x'.repeat(121),
+        metadata: { 'invalid key': 'work' },
+        url: 'https://mail.example/mcp',
+        allowPrivateNetwork: false,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'input.invalid' } });
   });
 
   it('previews and atomically cascades upstream deletion', async () => {

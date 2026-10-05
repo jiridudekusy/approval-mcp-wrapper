@@ -18,6 +18,9 @@ describe('upstream management UI', () => {
           upstream: {
             id: 'upstream-1',
             alias: 'signal',
+            displayName: 'Work messages',
+            description: 'Primary work account',
+            metadata: { account: 'work' },
             url: 'https://signal.example/mcp',
             allowPrivateNetwork: true,
             credentialsConfigured: true,
@@ -32,6 +35,10 @@ describe('upstream management UI', () => {
     );
 
     expect(html).toContain('value="signal"');
+    expect(html).toContain('value="Work messages"');
+    expect(html).toContain('Primary work account');
+    expect(html).toContain('value="account"');
+    expect(html).toContain('value="work"');
     expect(html).toContain('value="https://signal.example/mcp"');
     expect(html).not.toContain('Bearer');
     expect(html).toContain('type="password"');

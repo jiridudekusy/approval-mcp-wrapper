@@ -3,9 +3,10 @@ import http from 'node:http';
 import https from 'node:https';
 import type { LookupAddress } from 'node:dns';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 
 import {
   DefaultAddressPolicy,
@@ -231,14 +232,15 @@ export class OfficialMcpConnectionFactory implements McpConnectionFactory {
     });
     const client = new Client(
       { name: 'approval-mcp-wrapper', version: '0.0.0' },
-      { capabilities: {} },
+      {
+        capabilities: {},
+        versionNegotiation: { mode: 'auto' },
+      },
     );
-    // The SDK's transport declaration is not exact-optional clean, although its
-    // runtime implementation satisfies the Transport contract.
-    await client.connect(transport as Transport);
+    await client.connect(transport);
     return {
       listTools: () => client.listTools(),
-      callTool: (call, options) => client.callTool(call, undefined, {
+      callTool: (call, options) => client.callTool(call, {
         ...(options?.signal === undefined ? {} : { signal: options.signal }),
         ...(options?.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
       }),

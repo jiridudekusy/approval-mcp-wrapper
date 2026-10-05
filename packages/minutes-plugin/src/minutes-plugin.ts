@@ -17,6 +17,9 @@ export const MINUTES_PLUGIN_VERSION = '1.0.0';
 export const MINUTES_NORMALIZATION_VERSION = 1;
 
 export const MINUTES_TOOL_NAMES = [
+  'add_contact',
+  'download_attachment',
+  'get_attachment_directories',
   'get_server_status',
   'list_recordings',
   'search_recordings',
@@ -26,6 +29,7 @@ export const MINUTES_TOOL_NAMES = [
   'list_conversations',
   'list_contacts',
   'get_messages',
+  'get_message',
   'search_messages',
   'send_message',
   'set_message_reaction',
@@ -39,6 +43,7 @@ export const MINUTES_TOOL_NAMES = [
   'set_group_permissions',
   'set_group_disappearing_messages',
   'leave_group',
+  'terminate_group',
   'get_active_call',
   'start_call',
   'hang_up_call',
@@ -138,6 +143,9 @@ function scope(
 const toolTitles: Readonly<
   Record<string, Readonly<{ en: string; cs: string }>>
 > = {
+  add_contact: { en: 'Add a Signal contact', cs: 'Přidat kontakt Signalu' },
+  download_attachment: { en: 'Download a Signal attachment', cs: 'Stáhnout přílohu Signalu' },
+  get_attachment_directories: { en: 'Show attachment directories', cs: 'Zobrazit složky příloh' },
   get_server_status: { en: 'Check Minutes server status', cs: 'Zjistit stav serveru Minutes' },
   list_recordings: { en: 'List recordings', cs: 'Vypsat nahrávky' },
   search_recordings: { en: 'Search recordings', cs: 'Hledat v nahrávkách' },
@@ -147,6 +155,7 @@ const toolTitles: Readonly<
   list_conversations: { en: 'List Signal conversations', cs: 'Vypsat konverzace Signalu' },
   list_contacts: { en: 'List Signal contacts', cs: 'Vypsat kontakty Signalu' },
   get_messages: { en: 'Read messages', cs: 'Načíst zprávy' },
+  get_message: { en: 'Read a message', cs: 'Načíst zprávu' },
   search_messages: { en: 'Search messages', cs: 'Hledat ve zprávách' },
   send_message: { en: 'Send a Signal message', cs: 'Odeslat zprávu přes Signal' },
   set_message_reaction: { en: 'Change a message reaction', cs: 'Změnit reakci na zprávu' },
@@ -160,6 +169,7 @@ const toolTitles: Readonly<
   set_group_permissions: { en: 'Change group permissions', cs: 'Změnit oprávnění skupiny' },
   set_group_disappearing_messages: { en: 'Change disappearing messages', cs: 'Změnit mizející zprávy' },
   leave_group: { en: 'Leave a Signal group', cs: 'Opustit skupinu Signalu' },
+  terminate_group: { en: 'Permanently terminate a Signal group', cs: 'Trvale ukončit skupinu Signalu' },
   get_active_call: { en: 'Check the active call', cs: 'Zjistit aktivní hovor' },
   start_call: { en: 'Start a Signal call', cs: 'Zahájit hovor přes Signal' },
   hang_up_call: { en: 'End the active call', cs: 'Ukončit aktivní hovor' },
@@ -178,11 +188,14 @@ const dangerTools = new Set([
   'set_group_permissions',
   'set_group_disappearing_messages',
   'stop_recording',
+  'terminate_group',
 ]);
 
 const warningTools = new Set([
+  'add_contact',
   'add_group_members',
   'create_group',
+  'download_attachment',
   'send_message',
   'set_message_reaction',
   'start_audio_recording',
@@ -329,7 +342,7 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
       );
       target ??= entityName(group, 'Group');
       const destructive = dangerTools.has(input.toolName);
-      if (input.toolName !== 'leave_group') {
+      if (input.toolName !== 'leave_group' && input.toolName !== 'terminate_group') {
         scopes.push(
           scope(
             'group',
@@ -438,6 +451,16 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
     const title = stringValue(args, 'title');
     if (title !== undefined) {
       fields.push(field('minutes.field.title', 'Title', 'Název', title));
+    }
+    for (const [key, label] of Object.entries({
+      phoneNumber: { en: 'Phone number', cs: 'Telefonní číslo' },
+      username: { en: 'Username', cs: 'Uživatelské jméno' },
+      attachmentId: { en: 'Attachment ID', cs: 'ID přílohy' },
+    })) {
+      const value = args[key];
+      if (typeof value === 'string') {
+        fields.push(field(`minutes.field.${key}`, label.en, label.cs, value));
+      }
     }
     const description = args['description'];
     if (typeof description === 'string') {

@@ -1,13 +1,13 @@
 import type { ClientTokenId } from '@approval-mcp/contracts';
 import type { McpTool } from '@approval-mcp/upstream';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler, Server } from '@modelcontextprotocol/server';
+import type {
+  AuthInfo,
+  CallToolResult,
+  ListToolsResult,
+  Tool,
+} from '@modelcontextprotocol/server';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { PublicTool } from './catalog.js';
@@ -127,6 +127,15 @@ export interface McpHttpHandlerOptions {
   gateway: TokenScopedGateway;
 }
 
+export interface McpHttpNodeHandler {
+  (
+    request: IncomingMessage,
+    response: ServerResponse,
+    parsedBody?: unknown,
+  ): Promise<void>;
+  close(): Promise<void>;
+}
+
 function singleHeader(
   value: string | readonly string[] | undefined,
 ): string | undefined {
@@ -143,91 +152,100 @@ function bearerToken(
 
 export function createMcpHttpHandler(
   options: McpHttpHandlerOptions,
-): (
-  request: IncomingMessage,
-  response: ServerResponse,
-  parsedBody?: unknown,
-) => Promise<void> {
-  return async (request, response, parsedBody) => {
-    try {
-      validateOrigin(singleHeader(request.headers.origin), options.allowedOrigins);
-      const plaintext = bearerToken(request.headers.authorization);
-      const tokenId =
-        plaintext === undefined
-          ? undefined
-          : await options.authenticate(plaintext);
-      if (tokenId === undefined) {
-        response.writeHead(401).end();
-        return;
-      }
-
-      const disconnected = new AbortController();
-      request.once('aborted', () => disconnected.abort());
-      const server = new Server(
-        { name: 'approval-mcp-wrapper', version: '0.0.0' },
-        { capabilities: { tools: { listChanged: true } } },
-      );
-      server.setRequestHandler(ListToolsRequestSchema, async () => ({
+): McpHttpNodeHandler {
+  const mcpHandler = createMcpHandler((context) => {
+    const clientTokenId = context.authInfo?.extra?.['clientTokenId'];
+    if (typeof clientTokenId !== 'string') {
+      throw new Error('Authenticated client token context is missing');
+    }
+    const tokenId = clientTokenId as ClientTokenId;
+    const server = new Server(
+      { name: 'approval-mcp-wrapper', version: '0.0.0' },
+      { capabilities: { tools: { listChanged: true } } },
+    );
+    server.setRequestHandler(
+      'tools/list',
+      async (): Promise<ListToolsResult> => ({
         tools: (await options.gateway.listTools(tokenId)).map((tool) => ({
           name: tool.name,
           ...(tool.description === undefined
             ? {}
             : { description: tool.description }),
-          inputSchema: tool.inputSchema as {
-            type: 'object';
-            properties?: Record<string, object>;
-            required?: string[];
-          },
+          inputSchema: tool.inputSchema,
           ...(tool.outputSchema === undefined
             ? {}
-            : {
-                outputSchema: tool.outputSchema as {
-                  type: 'object';
-                  properties?: Record<string, object>;
-                  required?: string[];
-                },
-              }),
+            : { outputSchema: tool.outputSchema }),
           ...(tool.annotations === undefined
             ? {}
             : { annotations: tool.annotations }),
-        })),
-      }));
-      server.setRequestHandler(CallToolRequestSchema, async (mcpRequest, extra) => {
-        const signal = AbortSignal.any([extra.signal, disconnected.signal]);
-        try {
-          return await options.gateway.call(
-            tokenId,
-            mcpRequest.params.name,
-            mcpRequest.params.arguments ?? {},
-            signal,
-          );
-        } catch (error) {
-          if (error instanceof PolicyDeniedError) {
-            return {
-              isError: true,
-              content: [{ type: 'text', text: error.message }],
-            };
-          }
-          if (
-            error instanceof GatewayError &&
-            error.code === 'tool_not_found'
-          ) {
-            return {
-              isError: true,
-              content: [{ type: 'text', text: 'Tool not found' }],
-            };
-          }
-          throw error;
+        })) as Tool[],
+      }),
+    );
+    server.setRequestHandler('tools/call', async (mcpRequest, context) => {
+      try {
+        return await options.gateway.call(
+          tokenId,
+          mcpRequest.params.name,
+          mcpRequest.params.arguments ?? {},
+          context.mcpReq.signal,
+        );
+      } catch (error) {
+        if (error instanceof PolicyDeniedError) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: error.message }],
+          };
         }
-      });
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      } as unknown as ConstructorParameters<
-        typeof StreamableHTTPServerTransport
-      >[0]);
-      // The SDK declarations are not exact-optional clean.
-      await server.connect(transport as Transport);
-      await transport.handleRequest(request, response, parsedBody);
+        if (
+          error instanceof GatewayError &&
+          error.code === 'tool_not_found'
+        ) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: 'Tool not found' }],
+          };
+        }
+        throw error;
+      }
+    });
+    return server;
+  });
+  const nodeHandler = toNodeHandler(mcpHandler);
+  const handle = async (
+    request: IncomingMessage,
+    response: ServerResponse,
+    parsedBody?: unknown,
+  ): Promise<void> => {
+    try {
+      validateOrigin(singleHeader(request.headers.origin), options.allowedOrigins);
+      const plaintext = bearerToken(request.headers.authorization);
+      if (plaintext === undefined) {
+        response.writeHead(401).end();
+        return;
+      }
+      const tokenId = await options.authenticate(plaintext);
+      if (tokenId === undefined) {
+        response.writeHead(401).end();
+        return;
+      }
+      const authenticatedRequest = request as IncomingMessage & {
+        method: string;
+        url: string;
+        auth?: AuthInfo;
+      };
+      authenticatedRequest.method ??= 'POST';
+      authenticatedRequest.url ??= '/mcp';
+      authenticatedRequest.auth = {
+        token: plaintext,
+        clientId: tokenId,
+        scopes: [],
+        extra: { clientTokenId: tokenId },
+      };
+      try {
+        await nodeHandler(authenticatedRequest, response, parsedBody);
+      } finally {
+        delete authenticatedRequest.auth;
+      }
     } catch (error) {
       if (error instanceof GatewayError && error.code === 'invalid_origin') {
         response.writeHead(403).end();
@@ -237,4 +255,5 @@ export function createMcpHttpHandler(
       response.end();
     }
   };
+  return Object.assign(handle, { close: () => mcpHandler.close() });
 }

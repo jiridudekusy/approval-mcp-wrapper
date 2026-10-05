@@ -21,7 +21,7 @@ import {
   evaluatePolicy,
 } from '@approval-mcp/policy';
 import type { PluginCallDescription } from '@approval-mcp/plugin-sdk';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 
 import { AtMostOnceExecutionRegistry } from './pending-call-registry.js';
 

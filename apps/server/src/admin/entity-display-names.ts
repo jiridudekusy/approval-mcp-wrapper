@@ -27,6 +27,8 @@ export function entityDisplayNames(
     (token as ClientTokenRecord | undefined)?.label,
   );
   const upstreamAlias = nonEmpty(
+    (upstream as Upstream | undefined)?.displayName,
+  ) ?? nonEmpty(
     (upstream as Upstream | undefined)?.alias,
   );
   return {

@@ -7,7 +7,7 @@ import type {
 } from '@approval-mcp/contracts';
 import type { McpTool } from '@approval-mcp/upstream';
 import { canonicalRequestHash, evaluatePolicy } from '@approval-mcp/policy';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult } from '@modelcontextprotocol/server';
 
 export const TOOL_INSPECTION_TOOL_NAME = 'approval_mcp__inspect_tool';
 

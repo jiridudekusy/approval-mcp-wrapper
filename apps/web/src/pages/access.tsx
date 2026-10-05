@@ -8,7 +8,7 @@ import { useI18n } from '../i18n/i18n.js';
 import { useDialogLifecycle } from '../hooks/use-dialog-lifecycle.js';
 
 interface TokenView { id: string; label: string; revokedAt?: string; profileIds: string[] }
-interface UpstreamView { id: string; alias: string }
+interface UpstreamView { id: string; alias: string; displayName?: string }
 
 export function Access({ csrfToken }: { csrfToken: string }) {
   const { t } = useI18n();

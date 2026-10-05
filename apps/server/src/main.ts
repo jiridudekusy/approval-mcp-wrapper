@@ -31,6 +31,7 @@ import {
 import {
   MinutesApprovalPlugin,
 } from '@approval-mcp/minutes-plugin';
+import { connectedApprovalPlugins } from '@approval-mcp/connected-plugins';
 import {
   createGenericDescription,
   PluginRegistry,
@@ -90,6 +91,7 @@ const upstreams = new UpstreamRegistry({
   credentialVault,
 });
 const pluginRegistry = new PluginRegistry([
+  ...connectedApprovalPlugins(),
   new MinutesApprovalPlugin({
     async readJson(upstreamId, uri) {
       const result = (await upstreams.readResource({
@@ -427,6 +429,7 @@ app.setNotFoundHandler((request, reply) => {
 
 app.addHook('onClose', async () => {
   retention.close();
+  await mcpHandler.close();
   await upstreams.close();
   await stateStore.close();
 });

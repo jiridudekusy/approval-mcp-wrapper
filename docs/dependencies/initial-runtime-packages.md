@@ -1,20 +1,52 @@
 # Initial Runtime Package Admission
 
-Assessment date: 2026-09-03
+Assessment date: 2026-10-05
 
-## @modelcontextprotocol/sdk@1.30.0
+## @modelcontextprotocol/client@2.0.0
 
-- Latest release: 2026-07-28.
-- Adoption: approximately 45 million weekly downloads and more than 63,000 dependents.
-- Maintainers: official Model Context Protocol project with multiple npm maintainers.
-- Runtime dependencies: 17; Zod is a required peer.
+- Release line: stable SDK v2 split package.
+- Maintainers: official Model Context Protocol project with six npm maintainers.
+- Runtime dependencies: seven, including the exact matching core package.
 - License: MIT.
 - Security: must pass the lockfile npm audit and CI advisory gate before merge.
-- Rationale: official client/server implementation of MCP Streamable HTTP and protocol negotiation.
+- Rationale: official MCP client, Streamable HTTP transport, and automatic
+  legacy/modern protocol negotiation for upstream connections.
 
-## fastify@5.12.1
+## @modelcontextprotocol/core@2.0.0
 
-- Latest release: 2026-08-18.
+- Release line: stable SDK v2 split package.
+- Maintainers: official Model Context Protocol project with six npm maintainers.
+- Runtime dependencies: one (Zod).
+- License: MIT.
+- Security: must pass the lockfile npm audit and CI advisory gate before merge.
+- Rationale: shared official MCP wire types and validation used by the client,
+  server, and Node adapter.
+
+## @modelcontextprotocol/node@2.0.0
+
+- Release line: stable SDK v2 split package.
+- Maintainers: official Model Context Protocol project with six npm maintainers.
+- Runtime dependencies: one plus two peers.
+- License: MIT.
+- Security: the 2026-08-12 audit has no high or critical runtime advisory. Its
+  nested Hono adapter has a moderate Windows-only `serve-static` advisory; this
+  service does not import or expose that adapter's static-file middleware.
+- Rationale: official adapter between Node HTTP requests and the web-standard
+  dual-era MCP handler.
+
+## @modelcontextprotocol/server@2.0.0
+
+- Release line: stable SDK v2 split package.
+- Maintainers: official Model Context Protocol project with seven npm maintainers.
+- Runtime dependencies: two, including the exact matching core package.
+- License: MIT.
+- Security: must pass the lockfile npm audit and CI advisory gate before merge.
+- Rationale: official MCP server and dual-era HTTP handler supporting both the
+  2025-11-25 and 2026-07-28 protocol generations.
+
+## fastify@5.12.5
+
+- Latest release: 2026-09-16.
 - Adoption: approximately 10 million weekly downloads and more than 5,000 dependents.
 - Maintainers: active OpenJS Foundation project with multiple maintainers.
 - Runtime dependencies: 15.

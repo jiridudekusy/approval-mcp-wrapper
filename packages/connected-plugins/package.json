@@ -1,5 +1,5 @@
 {
-  "name": "@approval-mcp/upstream",
+  "name": "@approval-mcp/connected-plugins",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@approval-mcp/contracts": "0.0.0",
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/core": "2.0.0"
+    "@approval-mcp/plugin-sdk": "0.0.0"
   }
 }

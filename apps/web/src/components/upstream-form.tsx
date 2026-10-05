@@ -2,6 +2,11 @@ import { useState, type FormEvent } from 'react';
 
 import { api } from '../api/client.js';
 import { useI18n } from '../i18n/i18n.js';
+import {
+  metadataRecord,
+  UpstreamMetadataEditor,
+  type UpstreamMetadataRow,
+} from './upstream-metadata-editor.js';
 
 export function UpstreamForm({
   csrfToken,
@@ -16,6 +21,9 @@ export function UpstreamForm({
 }) {
   const { t } = useI18n();
   const [alias, setAlias] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [description, setDescription] = useState('');
+  const [metadata, setMetadata] = useState<UpstreamMetadataRow[]>([]);
   const [url, setUrl] = useState('');
   const [authorization, setAuthorization] = useState('');
   const [privateNetwork, setPrivateNetwork] = useState(false);
@@ -29,6 +37,9 @@ export function UpstreamForm({
         method: 'POST',
         body: JSON.stringify({
           alias,
+          ...(displayName.trim() === '' ? {} : { displayName }),
+          ...(description.trim() === '' ? {} : { description }),
+          ...(metadata.length === 0 ? {} : { metadata: metadataRecord(metadata) }),
           url,
           allowPrivateNetwork: privateNetwork,
           ...(pluginPin === ''
@@ -57,13 +68,23 @@ export function UpstreamForm({
       </div>
       <div className="form-grid">
         <label className="field">
+          <span>{t('upstreams.displayName')}</span>
+          <input maxLength={120} placeholder={t('upstreams.displayNamePlaceholder')} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          <small>{t('upstreams.displayNameHint')}</small>
+        </label>
+        <label className="field">
           <span>{t('upstreams.alias')}</span>
           <input required pattern="[a-z0-9_-]+" value={alias} onChange={(event) => setAlias(event.target.value)} />
         </label>
-        <label className="field">
+        <label className="field field-wide">
           <span>{t('upstreams.url')}</span>
           <input required type="url" placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => setUrl(event.target.value)} />
         </label>
+        <label className="field field-wide">
+          <span>{t('upstreams.description')}</span>
+          <textarea maxLength={1000} rows={3} placeholder={t('upstreams.descriptionPlaceholder')} value={description} onChange={(event) => setDescription(event.target.value)} />
+        </label>
+        <UpstreamMetadataEditor rows={metadata} onChange={setMetadata} />
         <label className="field field-wide">
           <span>{t('upstreams.credentials')}</span>
           <input type="password" autoComplete="off" value={authorization} onChange={(event) => setAuthorization(event.target.value)} />
