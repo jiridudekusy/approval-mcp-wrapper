@@ -14,7 +14,7 @@ import type {
 
 export const MINUTES_PLUGIN_ID = 'minutes';
 export const MINUTES_PLUGIN_VERSION = '1.0.0';
-export const MINUTES_NORMALIZATION_VERSION = 1;
+export const MINUTES_NORMALIZATION_VERSION = 2;
 
 export const MINUTES_TOOL_NAMES = [
   'add_contact',
@@ -56,11 +56,57 @@ export const MINUTES_TOOL_NAMES = [
 
 export interface MinutesResourceReader {
   readJson(upstreamId: string, uri: string): Promise<JsonValue | undefined>;
+  readMessage?(upstreamId: string, messageId: string): Promise<unknown>;
 }
 
 interface EntityDisplay {
   id: string;
   name: string | null;
+}
+
+interface MessageDisplay {
+  id: string;
+  text?: string;
+  conversationId?: string;
+}
+
+function unknownRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function nonempty(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolvedMessage(result: unknown, messageId: string): MessageDisplay | undefined {
+  const pending: unknown[] = [result];
+  let inspected = 0;
+  while (pending.length > 0 && inspected < 100) {
+    const value = pending.shift();
+    inspected += 1;
+    if (Array.isArray(value)) {
+      pending.push(...value.slice(0, 100));
+      continue;
+    }
+    const item = unknownRecord(value);
+    if (item === undefined) continue;
+    const id = nonempty(item['messageId'] ?? item['id']);
+    if (id === messageId) {
+      const text = nonempty(item['text'] ?? item['body'] ?? item['content']);
+      const conversationId = nonempty(item['conversationId'] ?? item['chatId'] ?? item['groupId']);
+      return { id, ...(text === undefined ? {} : { text }), ...(conversationId === undefined ? {} : { conversationId }) };
+    }
+    for (const key of ['structuredContent', 'content', 'message', 'messages', 'result', 'data']) {
+      if (item[key] !== undefined) pending.push(item[key]);
+    }
+    const text = nonempty(item['text']);
+    if (text !== undefined && (text.startsWith('{') || text.startsWith('['))) {
+      try { pending.push(JSON.parse(text) as unknown); } catch { /* Ignore plain text. */ }
+    }
+  }
+  return undefined;
 }
 
 type Risk = NonNullable<ApprovalSection['risk']>;
@@ -227,12 +273,14 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
     };
     const fields: ApprovalField[] = [];
     const proposedScopes: ProposedGrantScope[] = [];
+    const normalizedContext = structuredClone(args) as Record<string, JsonValue>;
 
     const resolvedTarget = await this.#describeTarget(
       input,
       args,
       fields,
       proposedScopes,
+      normalizedContext,
     );
     const target =
       resolvedTarget ??
@@ -275,7 +323,7 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
 
     return {
       source: 'plugin',
-      normalizedContext: structuredClone(args),
+      normalizedContext,
       sensitivePaths: [],
       title: message(
         `minutes.tool.${input.toolName}`,
@@ -293,9 +341,26 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
     args: Readonly<Record<string, JsonValue>>,
     fields: ApprovalField[],
     scopes: ProposedGrantScope[],
+    normalizedContext: Record<string, JsonValue>,
   ): Promise<string | undefined> {
     let target: string | undefined;
-    const conversationId = stringValue(args, 'conversationId');
+    const messageId = stringValue(args, 'messageId');
+    let resolved: MessageDisplay | undefined;
+    if (messageId !== undefined && this.resources?.readMessage !== undefined) {
+      try {
+        resolved = resolvedMessage(await this.resources.readMessage(input.upstreamId, messageId), messageId);
+      } catch { /* Missing message details must not prevent approval. */ }
+    }
+    const conversationId = messageId === undefined
+      ? stringValue(args, 'conversationId')
+      : resolved?.conversationId;
+    if (messageId !== undefined) {
+      // Never trust a caller-supplied chat ID as evidence of where a message lives.
+      delete normalizedContext['conversationId'];
+      delete normalizedContext['groupId'];
+      delete normalizedContext['contactId'];
+      delete normalizedContext['recordingId'];
+    }
     if (conversationId !== undefined) {
       const conversation = await this.#entity(
         input,
@@ -312,6 +377,7 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
         ),
       );
       target = entityName(conversation, 'Conversation');
+      normalizedContext['conversationId'] = conversationId;
       scopes.push(
         scope(
           'conversation',
@@ -324,7 +390,7 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
       );
     }
 
-    const groupId = stringValue(args, 'groupId');
+    const groupId = messageId === undefined ? stringValue(args, 'groupId') : undefined;
     if (groupId !== undefined) {
       const group = await this.#entity(
         input,
@@ -356,7 +422,7 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
       }
     }
 
-    const contactId = stringValue(args, 'contactId');
+    const contactId = messageId === undefined ? stringValue(args, 'contactId') : undefined;
     if (contactId !== undefined) {
       const contact = await this.#entity(input, 'contacts', contactId, 'title');
       fields.push(
@@ -380,7 +446,7 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
       );
     }
 
-    const recordingId = stringValue(args, 'recordingId');
+    const recordingId = messageId === undefined ? stringValue(args, 'recordingId') : undefined;
     if (recordingId !== undefined) {
       const recording = await this.#entity(
         input,
@@ -409,28 +475,19 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
       );
     }
 
-    const messageId = stringValue(args, 'messageId');
     if (messageId !== undefined) {
-      const entity = { id: messageId, name: null };
+      if (resolved?.text !== undefined) {
+        fields.push(field('minutes.field.messageText', 'Message text', 'Text zprávy', resolved.text));
+      }
       fields.push(
         field(
           'minutes.field.message',
-          'Message',
-          'Zpráva',
-          entityValue(entity),
+          'Message ID',
+          'ID zprávy',
+          messageId,
         ),
       );
       target ??= `ID ${messageId}`;
-      scopes.push(
-        scope(
-          'message',
-          '/messageId',
-          messageId,
-          `ID ${messageId}`,
-          'message',
-          ['hour'],
-        ),
-      );
     }
     return target;
   }

@@ -90,7 +90,7 @@ export const CONNECTED_TOOL_DEFINITIONS = {
     services: tool('List wellness services', 'Vypsat wellness služby', 'info', ['refresh']),
   },
   whatsapp: {
-    download_media: tool('Download WhatsApp media', 'Stáhnout médium z WhatsAppu', 'warning', ['chat_jid', 'message_id']),
+    download_media: tool('Download WhatsApp media', 'Stáhnout médium z WhatsAppu', 'warning', ['chat_jid', 'message_id'], 'chat_jid'),
     get_chat: tool('Open WhatsApp chat', 'Načíst chat WhatsAppu', 'info', ['chat_jid']),
     get_contact_chats: tool('List chats with contact', 'Vypsat chaty s kontaktem', 'info', ['jid']),
     get_direct_chat_by_contact: tool('Find direct chat', 'Najít přímý chat', 'info', ['sender_phone_number']),
@@ -102,11 +102,144 @@ export const CONNECTED_TOOL_DEFINITIONS = {
     send_audio_message: tool('Send WhatsApp audio message', 'Odeslat hlasovou zprávu přes WhatsApp', 'warning', ['recipient', 'media_path'], 'recipient'),
     send_file: tool('Send WhatsApp file', 'Odeslat soubor přes WhatsApp', 'warning', ['recipient', 'media_path'], 'recipient'),
     send_message: tool('Send WhatsApp message', 'Odeslat zprávu přes WhatsApp', 'warning', ['recipient', 'message'], 'recipient'),
-    sync_chat_history: tool('Sync WhatsApp chat history', 'Synchronizovat historii chatu WhatsAppu', 'warning', ['chat_jid', 'count']),
+    sync_chat_history: tool('Sync WhatsApp chat history', 'Synchronizovat historii chatu WhatsAppu', 'warning', ['chat_jid', 'count'], 'chat_jid'),
   },
 } as const satisfies Record<string, Record<string, ToolDefinition>>;
 
 export type ConnectedPluginId = keyof typeof CONNECTED_TOOL_DEFINITIONS;
+
+export interface ConnectedContactLookup {
+  findContact(upstreamId: string, source: 'whatsapp' | 'imcp', identifier: string): Promise<unknown>;
+  findChat?(upstreamId: string, identifier: string): Promise<unknown>;
+  findMessage?(upstreamId: string, identifier: string): Promise<unknown>;
+}
+
+interface ContactDisplay {
+  id: string;
+  name: string | null;
+}
+
+function contactValue(contact: ContactDisplay): JsonValue {
+  return { id: contact.id, name: contact.name };
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function nonemptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function sameContact(left: string, right: string): boolean {
+  if (left === right) return true;
+  if ((left.includes('@') && !left.endsWith('@s.whatsapp.net')) ||
+      (right.includes('@') && !right.endsWith('@s.whatsapp.net'))) return false;
+  const leftPhone = left.replace(/@s\.whatsapp\.net$/i, '').replace(/[^0-9]/g, '');
+  const rightPhone = right.replace(/@s\.whatsapp\.net$/i, '').replace(/[^0-9]/g, '');
+  return leftPhone.length >= 7 && leftPhone === rightPhone;
+}
+
+function contactName(value: Record<string, unknown>, identifier: string): string | undefined {
+  const ids = ['jid', 'id', 'identifier', 'chat_jid', 'chatJid', 'phone', 'phoneNumber', 'phone_number', 'number', 'wa_id']
+    .map((key) => nonemptyString(value[key]))
+    .filter((candidate): candidate is string => candidate !== undefined);
+  const phoneNumbers = value['phoneNumbers'];
+  if (Array.isArray(phoneNumbers)) {
+    for (const phone of phoneNumbers) {
+      const item = objectValue(phone);
+      const candidate = nonemptyString(item?.['value'] ?? item?.['number'] ?? phone);
+      if (candidate !== undefined) ids.push(candidate);
+    }
+  }
+  if (!ids.some((candidate) => sameContact(candidate, identifier))) return undefined;
+  const name = ['displayName', 'display_name', 'fullName', 'full_name', 'formattedName', 'pushName', 'push_name', 'subject', 'title', 'chatName', 'name']
+    .map((key) => nonemptyString(value[key]))
+    .find((candidate) => candidate !== undefined && !sameContact(candidate, identifier));
+  return name?.slice(0, 100);
+}
+
+function findContactName(result: unknown, identifier: string): string | undefined {
+  const pending: unknown[] = [result];
+  let inspected = 0;
+  while (pending.length > 0 && inspected < 100) {
+    const value = pending.shift();
+    inspected += 1;
+    if (Array.isArray(value)) {
+      pending.push(...value.slice(0, 100));
+      continue;
+    }
+    const record = objectValue(value);
+    if (record === undefined) continue;
+    const name = contactName(record, identifier);
+    if (name !== undefined) return name;
+    for (const key of ['structuredContent', 'content', 'contacts', 'chats', 'chat', 'results', 'items', 'data']) {
+      const nested = record[key];
+      if (nested !== undefined) pending.push(nested);
+    }
+    const text = nonemptyString(record['text']);
+    if (text !== undefined && (text.startsWith('{') || text.startsWith('['))) {
+      try { pending.push(JSON.parse(text) as unknown); } catch { /* A non-JSON tool message is not a contact. */ }
+    }
+  }
+  return undefined;
+}
+
+interface MessageDisplay {
+  id: string;
+  text?: string;
+  chatId?: string;
+}
+
+function findMessage(result: unknown, identifier: string): MessageDisplay | undefined {
+  const pending: unknown[] = [result];
+  let inspected = 0;
+  while (pending.length > 0 && inspected < 100) {
+    const value = pending.shift();
+    inspected += 1;
+    if (Array.isArray(value)) {
+      pending.push(...value.slice(0, 100));
+      continue;
+    }
+    const record = objectValue(value);
+    if (record === undefined) continue;
+    const id = nonemptyString(record['message_id'] ?? record['messageId'] ?? record['id']);
+    if (id === identifier) {
+      const text = nonemptyString(record['body'] ?? record['text'] ?? record['caption'] ?? record['content']);
+      const chatId = nonemptyString(record['chat_jid'] ?? record['chatJid'] ?? record['remoteJid']);
+      return { id, ...(text === undefined ? {} : { text }), ...(chatId === undefined ? {} : { chatId }) };
+    }
+    for (const key of ['structuredContent', 'content', 'message', 'messages', 'results', 'items', 'data']) {
+      const nested = record[key];
+      if (nested !== undefined) pending.push(nested);
+    }
+    const text = nonemptyString(record['text']);
+    if (text !== undefined && (text.startsWith('{') || text.startsWith('['))) {
+      try { pending.push(JSON.parse(text) as unknown); } catch { /* Ignore plain text. */ }
+    }
+  }
+  return undefined;
+}
+
+function contactIdentifierKey(pluginId: ConnectedPluginId, toolName: string): string | undefined {
+  if (pluginId === 'whatsapp') {
+    if (['send_message', 'send_file', 'send_audio_message'].includes(toolName)) return 'recipient';
+    if (['get_contact_chats', 'get_last_interaction'].includes(toolName)) return 'jid';
+    if (toolName === 'get_direct_chat_by_contact') return 'sender_phone_number';
+  }
+  if (pluginId === 'imcp' && toolName === 'phone_call') return 'phoneNumber';
+  return undefined;
+}
+
+function chatIdentifierKey(pluginId: ConnectedPluginId, toolName: string): string | undefined {
+  if (pluginId !== 'whatsapp') return undefined;
+  if (['download_media', 'get_chat', 'list_messages', 'sync_chat_history'].includes(toolName)) return 'chat_jid';
+  if (['send_message', 'send_file', 'send_audio_message'].includes(toolName)) return 'recipient';
+  return undefined;
+}
+
 const labels: Readonly<Record<string, Translated>> = {
   account: { en: 'Account', cs: 'Účet' },
   address: { en: 'Address', cs: 'Adresa' },
@@ -212,9 +345,9 @@ function scopedGrant(pluginId: ConnectedPluginId, key: string, value: string): P
 
 export class ConnectedApprovalPlugin implements ApprovalPlugin {
   readonly version = '1.0.0';
-  readonly normalizationVersion = 1;
+  readonly normalizationVersion = 2;
 
-  constructor(readonly id: ConnectedPluginId) {}
+  constructor(readonly id: ConnectedPluginId, private readonly contacts?: ConnectedContactLookup) {}
 
   async describe(input: PluginCallInput): Promise<PluginCallDescription> {
     const definitions = CONNECTED_TOOL_DEFINITIONS[this.id] as Readonly<Record<string, ToolDefinition>>;
@@ -223,15 +356,80 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
       return createGenericDescription(input, 'plugin.tool_unknown');
     }
     const args = argumentsRecord(input.arguments);
+    const contactKey = contactIdentifierKey(this.id, input.toolName);
+    const contactId = contactKey === undefined ? undefined : nonemptyString(args[contactKey]);
+    const chatKey = chatIdentifierKey(this.id, input.toolName);
+    const chatId = chatKey === undefined ? undefined : nonemptyString(args[chatKey]);
+    let contact: ContactDisplay | undefined;
+    if (contactId !== undefined) {
+      let name: string | undefined;
+      if (this.contacts !== undefined) {
+        try {
+          name = findContactName(await this.contacts.findContact(input.upstreamId, this.id as 'whatsapp' | 'imcp', contactId), contactId);
+        } catch { /* Contact lookup must never prevent an approval request. */ }
+      }
+      contact = { id: contactId, name: name ?? null };
+    }
+    let chat: ContactDisplay | undefined;
+    if (chatId !== undefined) {
+      let name = contactId === chatId ? contact?.name ?? undefined : undefined;
+      if (name === undefined && this.contacts?.findChat !== undefined) {
+        try {
+          name = findContactName(await this.contacts.findChat(input.upstreamId, chatId), chatId);
+        } catch { /* Chat lookup must never prevent an approval request. */ }
+      }
+      if (name === undefined && this.contacts !== undefined) {
+        try {
+          name = findContactName(await this.contacts.findContact(input.upstreamId, 'whatsapp', chatId), chatId);
+        } catch { /* Contact lookup is only a fallback for a direct chat. */ }
+      }
+      chat = { id: chatId, name: name ?? null };
+    }
+    const messageId = this.id === 'whatsapp' ? nonemptyString(args['message_id']) : undefined;
+    let referencedMessage: MessageDisplay | undefined;
+    if (messageId !== undefined && this.contacts?.findMessage !== undefined) {
+      try {
+        referencedMessage = findMessage(await this.contacts.findMessage(input.upstreamId, messageId), messageId);
+      } catch { /* Message lookup must never prevent an approval request. */ }
+    }
+    if (chat === undefined && referencedMessage?.chatId !== undefined) {
+      let name: string | undefined;
+      if (this.contacts?.findChat !== undefined) {
+        try {
+          name = findContactName(await this.contacts.findChat(input.upstreamId, referencedMessage.chatId), referencedMessage.chatId);
+        } catch { /* Chat lookup must never prevent an approval request. */ }
+      }
+      chat = { id: referencedMessage.chatId, name: name ?? null };
+    }
     const fields: ApprovalField[] = definition.fields.flatMap((key) => {
       const value = args[key];
       if (value === undefined) return [];
       return [{
         label: message(`${this.id}.field.${key}`, labels[key] ?? { en: key, cs: key }),
-        value: structuredClone(value),
+        value: key === chatKey && chat !== undefined
+          ? contactValue(chat)
+          : key === contactKey && contact !== undefined ? contactValue(contact) : structuredClone(value),
       }];
     });
-    const target = definition.fields.map((key) => targetValue(args[key])).find((value) => value !== undefined);
+    if (referencedMessage?.text !== undefined) {
+      fields.push({
+        label: message(`${this.id}.field.message_text`, { en: 'Message text', cs: 'Text zprávy' }),
+        value: referencedMessage.text,
+      });
+    }
+    if (chatKey === undefined && chat !== undefined) {
+      fields.unshift({
+        label: message(`${this.id}.field.chat_jid`, labels['chat_jid']!),
+        value: contactValue(chat),
+      });
+    }
+    const rawTarget = definition.fields.map((key) => targetValue(args[key])).find((value) => value !== undefined);
+    const namedTarget = chat?.name !== null && chat?.name !== undefined
+      ? chat
+      : contact?.name !== null && contact?.name !== undefined ? contact : undefined;
+    const target = namedTarget === undefined
+      ? rawTarget
+      : `${namedTarget.name} (${namedTarget.id})`.slice(0, 200);
     const risk = this.id === 'krkonoskewellness' && input.toolName === 'book' && args['confirm'] !== true
       ? 'info'
       : definition.risk;
@@ -252,10 +450,9 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
         risk: 'info',
       });
     }
-    const rawScopeValue = definition.scopeKey === undefined ? undefined : args[definition.scopeKey];
-    const scopeValue = typeof rawScopeValue === 'string' && rawScopeValue.length > 0
-      ? rawScopeValue
-      : undefined;
+    const scopeKey = definition.scopeKey;
+    const rawScopeValue = scopeKey === undefined ? undefined : args[scopeKey];
+    const scopeValue = typeof rawScopeValue === 'string' && rawScopeValue.length > 0 ? rawScopeValue : undefined;
     const bookingPreview = this.id === 'krkonoskewellness' && input.toolName === 'book' && args['confirm'] !== true;
     return {
       source: 'plugin',
@@ -270,14 +467,14 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
           : target === undefined ? definition.cs : `${definition.cs}: {target}`,
       }, target === undefined ? undefined : { target }),
       sections,
-      proposedScopes: definition.scopeKey === undefined || scopeValue === undefined
+      proposedScopes: scopeKey === undefined || scopeValue === undefined
         ? []
-        : [scopedGrant(this.id, definition.scopeKey, scopeValue)],
+        : [scopedGrant(this.id, scopeKey, scopeValue)],
     };
   }
 }
 
-export function connectedApprovalPlugins(): readonly ApprovalPlugin[] {
+export function connectedApprovalPlugins(contacts?: ConnectedContactLookup): readonly ApprovalPlugin[] {
   return (Object.keys(CONNECTED_TOOL_DEFINITIONS) as ConnectedPluginId[])
-    .map((id) => new ConnectedApprovalPlugin(id));
+    .map((id) => new ConnectedApprovalPlugin(id, contacts));
 }

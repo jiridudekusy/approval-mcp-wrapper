@@ -91,8 +91,43 @@ const upstreams = new UpstreamRegistry({
   credentialVault,
 });
 const pluginRegistry = new PluginRegistry([
-  ...connectedApprovalPlugins(),
+  ...connectedApprovalPlugins({
+    async findContact(upstreamId, source, identifier) {
+      return upstreams.call({
+        upstreamId: upstreamId as Upstream['id'],
+        toolName: source === 'whatsapp' ? 'search_contacts' : 'contacts_search',
+        arguments: source === 'whatsapp'
+          ? { query: identifier.replace(/@s\.whatsapp\.net$/i, '') }
+          : { phone: identifier },
+        timeoutMs: 3_000,
+      });
+    },
+    async findChat(upstreamId, identifier) {
+      return upstreams.call({
+        upstreamId: upstreamId as Upstream['id'],
+        toolName: 'get_chat',
+        arguments: { chat_jid: identifier },
+        timeoutMs: 3_000,
+      });
+    },
+    async findMessage(upstreamId, identifier) {
+      return upstreams.call({
+        upstreamId: upstreamId as Upstream['id'],
+        toolName: 'get_message_context',
+        arguments: { message_id: identifier },
+        timeoutMs: 3_000,
+      });
+    },
+  }),
   new MinutesApprovalPlugin({
+    async readMessage(upstreamId, messageId) {
+      return upstreams.call({
+        upstreamId: upstreamId as Upstream['id'],
+        toolName: 'get_message',
+        arguments: { messageId },
+        timeoutMs: 3_000,
+      });
+    },
     async readJson(upstreamId, uri) {
       const result = (await upstreams.readResource({
         upstreamId: upstreamId as Upstream['id'],
