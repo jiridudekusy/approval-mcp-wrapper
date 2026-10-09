@@ -87,6 +87,41 @@ async function fixture(options?: {
 }
 
 describe('admin API', () => {
+  it('exposes self tools in profile rules and issues manager tokens only when explicitly requested', async () => {
+    const { app, authHeaders } = await fixture();
+    const catalog = await app.inject({
+      method: 'GET', url: '/api/admin/self/tools',
+      headers: { cookie: authHeaders.cookie },
+    });
+    expect(catalog.statusCode).toBe(200);
+    expect(catalog.json().tools.map((tool: { name: string }) => tool.name)).toContain('list_history');
+
+    const profiles = await app.inject({
+      method: 'GET', url: '/api/admin/profiles',
+      headers: { cookie: authHeaders.cookie },
+    });
+    const profileId = profiles.json()[0].id as string;
+    const rule = await app.inject({
+      method: 'PUT', url: `/api/admin/profiles/${profileId}/rules`,
+      headers: authHeaders,
+      payload: { upstreamId: 'approval-mcp-self', toolName: 'list_history', outcome: 'allow' },
+    });
+    expect(rule.statusCode).toBe(200);
+    const invalidRule = await app.inject({
+      method: 'PUT', url: `/api/admin/profiles/${profileId}/rules`,
+      headers: authHeaders,
+      payload: { upstreamId: 'approval-mcp-self', toolName: 'unknown', outcome: 'allow' },
+    });
+    expect(invalidRule.statusCode).toBe(400);
+
+    const created = await app.inject({
+      method: 'POST', url: '/api/admin/tokens', headers: authHeaders,
+      payload: { label: 'Manager', canManageApprovalMcp: true },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().record.canManageApprovalMcp).toBe(true);
+  });
+
   it('lists exact plugin pins and stores one on an upstream', async () => {
     const { app, authHeaders } = await fixture({
       plugins: [

@@ -63,6 +63,13 @@ import {
 import { readiness } from './operations/health.js';
 import { startRetentionJob } from './operations/retention-job.js';
 import { PushNotificationService } from './push-notification-service.js';
+import {
+  callSelfTool,
+  MANAGER_TOOL_NAMES,
+  SELF_TOOLS,
+  SELF_UPSTREAM_ALIAS,
+  SELF_UPSTREAM_ID,
+} from './self-mcp-tools.js';
 
 const config = loadConfig();
 const stateStore = await createConfigStateStore(config.dataDir);
@@ -230,15 +237,50 @@ const timeoutsFor = (clientTokenId: ClientTokenId) => ({
     assignments: profileAssignments(),
   }),
 });
+const canManageApprovalMcp = (tokenId: ClientTokenId) => stateStore.read((state) => {
+  const token = state.clientTokens[tokenId] as {
+    canManageApprovalMcp?: boolean;
+    revokedAt?: string;
+  } | undefined;
+  return token?.canManageApprovalMcp === true && token.revokedAt === undefined;
+});
+const selfInspectFallback = (clientTokenId: ClientTokenId, toolName: string): Policy[] => {
+  if (toolName !== 'inspect_tool') return [];
+  const resolved = resolveProfileRules({
+    clientTokenId, upstreamId: SELF_UPSTREAM_ID, toolName,
+    profiles: profiles(), rules: profileRules(), assignments: profileAssignments(),
+  });
+  if (resolved.outcome !== 'unconfigured') return [];
+  return [{
+    id: 'approval-mcp-inspect-default' as PolicyId,
+    clientTokenId, upstreamId: SELF_UPSTREAM_ID, toolName,
+    outcome: 'allow', predicates: [], enabled: true, schemaVersion: 1,
+    createdAt: '1970-01-01T00:00:00.000Z', updatedAt: '1970-01-01T00:00:00.000Z', version: 1,
+  }];
+};
 const coordinator = new PolicyCallCoordinator({
   policies: (input) =>
-    policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
+    [...policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
+      ...(input.upstreamId === SELF_UPSTREAM_ID ? selfInspectFallback(input.clientTokenId, input.toolName) : [])],
   approvalTimeoutMs: (input) =>
     timeoutsFor(input.clientTokenId).approvalTimeoutSeconds * 1_000,
   toolCallTimeoutMs: (input) =>
     timeoutsFor(input.clientTokenId).toolCallTimeoutSeconds * 1_000,
   grants,
   describe: async (input) => {
+    if (input.upstreamId === SELF_UPSTREAM_ID) {
+      return {
+        description: createGenericDescription({
+          upstreamId: SELF_UPSTREAM_ID,
+          upstreamAlias: SELF_UPSTREAM_ALIAS,
+          toolName: input.toolName,
+          arguments: input.arguments as JsonValue,
+        }),
+        normalizationVersion: 1,
+        ...(input.toolName === 'inspect_tool' || input.toolName === 'get_tool_info'
+          ? { sensitivePaths: ['/arguments'] } : {}),
+      };
+    }
     const upstream = configuredUpstreams().find(
       (candidate) => candidate.id === input.upstreamId,
     );
@@ -278,11 +320,23 @@ const coordinator = new PolicyCallCoordinator({
     };
   },
   approvals,
-  upstream: upstreams,
+  upstream: {
+    call: (input) => input.upstreamId === SELF_UPSTREAM_ID
+      ? callSelfTool({
+          journal, upstreams, configuredUpstreams,
+          catalogFor: (tokenId) => catalogFor(tokenId, false),
+          inspectTool, canManage: canManageApprovalMcp,
+        }, input.clientTokenId, input.toolName, input.arguments ?? {})
+      : upstreams.call(input),
+  },
   journal,
 });
 const sourceToolsFor = async (refreshCatalogs: boolean) => {
-  const sourceTools: CatalogSourceTool[] = [];
+  const sourceTools: CatalogSourceTool[] = SELF_TOOLS.map((tool) => ({
+    upstreamId: SELF_UPSTREAM_ID,
+    upstreamAlias: SELF_UPSTREAM_ALIAS,
+    tool,
+  }));
   for (const upstreamId of upstreams.upstreamIds()) {
     const configured = configuredUpstreams().find(
       (candidate) => candidate.id === upstreamId,
@@ -322,6 +376,8 @@ const catalogFor = async (
   const approvalByTool = new Map<string, boolean>();
   const timeouts = timeoutsFor(tokenId);
   for (const source of sourceTools) {
+    if (source.upstreamId === SELF_UPSTREAM_ID &&
+      MANAGER_TOOL_NAMES.has(source.tool.name) && !canManageApprovalMcp(tokenId)) continue;
     const resolved = resolveProfileRules({
       clientTokenId: tokenId,
       upstreamId: source.upstreamId,
@@ -342,7 +398,7 @@ const catalogFor = async (
       ...matchingDirect.map((policy) => policy.outcome),
     ];
     if (
-      outcomes.length > 0 &&
+      (outcomes.length > 0 || (source.upstreamId === SELF_UPSTREAM_ID && source.tool.name === 'inspect_tool')) &&
       !outcomes.includes('deny')
     ) {
       const publicName = `${source.upstreamAlias}__${source.tool.name}`;
@@ -384,7 +440,11 @@ const inspectTool = async (
     upstreamId: tool.upstreamId,
     upstreamToolName: tool.upstreamToolName,
     argumentsValue,
-    policies: policiesFor(tokenId, tool.upstreamId, tool.upstreamToolName),
+    policies: [
+      ...policiesFor(tokenId, tool.upstreamId, tool.upstreamToolName),
+      ...(tool.upstreamId === SELF_UPSTREAM_ID
+        ? selfInspectFallback(tokenId, tool.upstreamToolName) : []),
+    ],
     grants: grants(),
     ...timeoutsFor(tokenId),
   });
@@ -392,7 +452,6 @@ const inspectTool = async (
 const mcpGateway = new TokenScopedGateway({
   coordinator,
   catalogFor,
-  inspectTool,
 });
 const mcpHandler = createMcpHttpHandler({
   allowedOrigins: [config.expectedOrigin],
@@ -400,6 +459,17 @@ const mcpHandler = createMcpHttpHandler({
     (await tokens.authenticate(plaintext))?.id,
   gateway: mcpGateway,
 });
+const onCatalogChanged = () => mcpHandler.notifyToolsChanged();
+upstreams.on('catalogChanged', onCatalogChanged);
+let catalogRefreshRunning = false;
+const catalogRefreshTimer = setInterval(() => {
+  if (catalogRefreshRunning) return;
+  catalogRefreshRunning = true;
+  void Promise.allSettled(
+    upstreams.upstreamIds().map((upstreamId) => upstreams.refresh(upstreamId)),
+  ).finally(() => { catalogRefreshRunning = false; });
+}, 30_000);
+catalogRefreshTimer.unref();
 const app = await buildServerApp({
   readiness: () =>
     readiness(config.dataDir, {
@@ -433,8 +503,11 @@ await registerAdminRoutes(app, {
   journal,
   plugins: pluginRegistry.list(),
   push: pushNotifications,
-  onUpstreamsChanged: async () =>
-    upstreams.replaceUpstreams(configuredUpstreams()),
+  onUpstreamsChanged: async () => {
+    await upstreams.replaceUpstreams(configuredUpstreams());
+    mcpHandler.notifyToolsChanged();
+  },
+  onVisibilityChanged: () => mcpHandler.notifyToolsChanged(),
   discoverTools: (upstreamId) => upstreams.refresh(upstreamId),
 });
 app.route({
@@ -463,6 +536,8 @@ app.setNotFoundHandler((request, reply) => {
 });
 
 app.addHook('onClose', async () => {
+  clearInterval(catalogRefreshTimer);
+  upstreams.off('catalogChanged', onCatalogChanged);
   retention.close();
   await mcpHandler.close();
   await upstreams.close();

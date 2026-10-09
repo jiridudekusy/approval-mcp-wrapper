@@ -48,6 +48,7 @@ interface CoordinatorApprovalService {
 
 interface CoordinatorUpstream {
   call(input: {
+    clientTokenId: ClientTokenId;
     upstreamId: UpstreamId;
     toolName: string;
     arguments?: Record<string, unknown>;
@@ -221,6 +222,7 @@ export class PolicyCallCoordinator implements CallCoordinator {
       await this.#append(input, callId, 'upstream.started');
       try {
         const result = (await this.#options.upstream.call({
+          clientTokenId: input.clientTokenId,
           upstreamId: input.upstreamId,
           toolName: input.toolName,
           arguments: input.arguments,

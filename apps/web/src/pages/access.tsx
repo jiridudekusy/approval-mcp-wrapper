@@ -9,6 +9,7 @@ import { useDialogLifecycle } from '../hooks/use-dialog-lifecycle.js';
 
 interface TokenView { id: string; label: string; revokedAt?: string; profileIds: string[] }
 interface UpstreamView { id: string; alias: string; displayName?: string }
+const SELF_UPSTREAM = { id: 'approval-mcp-self', alias: 'approval_mcp', displayName: 'Approval MCP' };
 
 export function Access({ csrfToken }: { csrfToken: string }) {
   const { t } = useI18n();
@@ -29,7 +30,7 @@ export function Access({ csrfToken }: { csrfToken: string }) {
       api<GrantView[]>('/api/admin/grants'),
       api<ProfileView[]>('/api/admin/profiles'),
     ]);
-    setTokens(nextTokens); setUpstreams(nextUpstreams); setGrants(nextGrants); setProfiles(nextProfiles);
+    setTokens(nextTokens); setUpstreams([...nextUpstreams, SELF_UPSTREAM]); setGrants(nextGrants); setProfiles(nextProfiles);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
   const revoke = async (grant: GrantView) => {

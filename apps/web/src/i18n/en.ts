@@ -130,6 +130,8 @@ export const en = {
   'access.defaultHint': 'An agent without assigned profiles uses the default profile.',
   'access.newToken': 'Generate token',
   'access.tokenLabel': 'Token label',
+  'access.managerToken': 'Allow management MCP tools (also requires a matching profile)',
+  'access.managerBadge': 'MCP manager',
   'access.tokenHint': 'The secret is shown exactly once after creation.',
   'access.createToken': 'Create token',
   'access.revoked': 'REVOKED',

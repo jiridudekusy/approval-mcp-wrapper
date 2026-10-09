@@ -14,11 +14,12 @@ export function TokenForm({
 }) {
   const { t } = useI18n();
   const [label, setLabel] = useState('');
+  const [canManageApprovalMcp, setCanManageApprovalMcp] = useState(false);
   async function submit(event: FormEvent) {
     event.preventDefault();
     const result = await api<{ plaintext: string }>(
       '/api/admin/tokens',
-      { method: 'POST', body: JSON.stringify({ label }) },
+      { method: 'POST', body: JSON.stringify({ label, canManageApprovalMcp }) },
       csrfToken,
     );
     setLabel('');
@@ -28,6 +29,7 @@ export function TokenForm({
     <form className="token-form" onSubmit={(event) => void submit(event)}>
       <h2>{t('access.newToken')}</h2>
       <label>{t('access.tokenLabel')}<input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} /></label>
+      <label className="token-manager-option"><input type="checkbox" checked={canManageApprovalMcp} onChange={(event) => setCanManageApprovalMcp(event.target.checked)} />{t('access.managerToken')}</label>
       <p>{t('access.tokenHint')}</p>
       <div className="modal-actions">{onCancel && <button type="button" onClick={onCancel}>{t('common.cancel')}</button>}<button className="primary compact" type="submit" disabled={label.trim() === ''}>{t('access.createToken')}</button></div>
     </form>

@@ -134,6 +134,7 @@ export interface McpHttpNodeHandler {
     parsedBody?: unknown,
   ): Promise<void>;
   close(): Promise<void>;
+  notifyToolsChanged(): void;
 }
 
 function singleHeader(
@@ -255,5 +256,8 @@ export function createMcpHttpHandler(
       response.end();
     }
   };
-  return Object.assign(handle, { close: () => mcpHandler.close() });
+  return Object.assign(handle, {
+    close: () => mcpHandler.close(),
+    notifyToolsChanged: () => mcpHandler.notify.toolsChanged(),
+  });
 }

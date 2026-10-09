@@ -45,6 +45,82 @@ describe('CredentialVault', () => {
 });
 
 describe('UpstreamRegistry', () => {
+  it('detects newly added tools on the live connection without restarting it', async () => {
+    const listTools = vi.fn()
+      .mockResolvedValueOnce({ tools: [{ name: 'old', inputSchema: {} }] })
+      .mockResolvedValueOnce({ tools: [{ name: 'old', inputSchema: {} }] })
+      .mockResolvedValueOnce({ tools: [
+        { name: 'old', inputSchema: {} },
+        { name: 'new', inputSchema: {} },
+      ] });
+    const connection: McpConnection = {
+      listTools,
+      callTool: vi.fn(),
+      readResource: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const factory: McpConnectionFactory = { connect: vi.fn().mockResolvedValue(connection) };
+    const registry = new UpstreamRegistry({ upstreams: [upstream()], connectionFactory: factory });
+    const changed = vi.fn();
+    registry.on('catalogChanged', changed);
+
+    await registry.refresh(upstreamId);
+    await registry.refresh(upstreamId);
+    const catalog = await registry.refresh(upstreamId);
+
+    expect(catalog.tools.map((tool) => tool.name)).toEqual(['new', 'old']);
+    expect(factory.connect).toHaveBeenCalledTimes(1);
+    expect(connection.close).not.toHaveBeenCalled();
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
+  it('reconnects after a failed live discovery and does not replace a good catalog on failure', async () => {
+    const first: McpConnection = {
+      listTools: vi.fn()
+        .mockResolvedValueOnce({ tools: [{ name: 'old', inputSchema: {} }] })
+        .mockRejectedValueOnce(new Error('connection lost')),
+      callTool: vi.fn(), readResource: vi.fn(), close: vi.fn().mockResolvedValue(undefined),
+    };
+    const second: McpConnection = {
+      listTools: vi.fn().mockResolvedValue({ tools: [{ name: 'new', inputSchema: {} }] }),
+      callTool: vi.fn(), readResource: vi.fn(), close: vi.fn().mockResolvedValue(undefined),
+    };
+    const factory: McpConnectionFactory = {
+      connect: vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second),
+    };
+    const registry = new UpstreamRegistry({ upstreams: [upstream()], connectionFactory: factory });
+
+    await registry.refresh(upstreamId);
+    const catalog = await registry.refresh(upstreamId);
+
+    expect(catalog.tools.map((tool) => tool.name)).toEqual(['new']);
+    expect(first.close).toHaveBeenCalledTimes(1);
+    expect(factory.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses a fresh connection after upstream settings change', async () => {
+    const first: McpConnection = {
+      listTools: vi.fn().mockResolvedValue({ tools: [{ name: 'old', inputSchema: {} }] }),
+      callTool: vi.fn(), readResource: vi.fn(), close: vi.fn().mockResolvedValue(undefined),
+    };
+    const second: McpConnection = {
+      listTools: vi.fn().mockResolvedValue({ tools: [{ name: 'new', inputSchema: {} }] }),
+      callTool: vi.fn(), readResource: vi.fn(), close: vi.fn().mockResolvedValue(undefined),
+    };
+    const factory: McpConnectionFactory = {
+      connect: vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second),
+    };
+    const registry = new UpstreamRegistry({ upstreams: [upstream()], connectionFactory: factory });
+
+    await registry.refresh(upstreamId);
+    await registry.replaceUpstreams([{ ...upstream(), url: 'https://other.example.test/mcp' }]);
+    const catalog = await registry.refresh(upstreamId);
+
+    expect(first.close).toHaveBeenCalledTimes(1);
+    expect(factory.connect).toHaveBeenCalledTimes(2);
+    expect(catalog.tools.map((tool) => tool.name)).toEqual(['new']);
+  });
+
   it('discovers a deterministic catalog and forwards tool calls', async () => {
     const connection: McpConnection = {
       listTools: vi.fn().mockResolvedValue({

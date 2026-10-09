@@ -1,48 +1,50 @@
 # Initial Runtime Package Admission
 
-Assessment date: 2026-10-05
+Assessment date: 2026-10-09
 
-## @modelcontextprotocol/client@2.0.0
+## @modelcontextprotocol/client@2.3.1
 
-- Release line: stable SDK v2 split package.
-- Maintainers: official Model Context Protocol project with six npm maintainers.
-- Runtime dependencies: seven, including the exact matching core package.
-- License: MIT.
-- Security: must pass the lockfile npm audit and CI advisory gate before merge.
+- Release: 2026-10-05; stable SDK v2 split package.
+- Adoption: 6.59 million npm downloads in 2026-10-01 through 2026-10-07.
+- Maintainers: active official Model Context Protocol TypeScript SDK repository; five npm maintainers.
+- Direct runtime dependencies: seven, including the exact matching core package.
+- License: Apache-2.0.
+- Security: upgrades past [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h); OSV reports no advisory for this version, and the lockfile npm audit reports no runtime advisory at admission.
 - Rationale: official MCP client, Streamable HTTP transport, and automatic
-  legacy/modern protocol negotiation for upstream connections.
+  legacy/modern protocol negotiation for upstream connections; Node built-ins do not implement MCP.
 
-## @modelcontextprotocol/core@2.0.0
+## @modelcontextprotocol/core@2.3.1
 
-- Release line: stable SDK v2 split package.
-- Maintainers: official Model Context Protocol project with six npm maintainers.
-- Runtime dependencies: one (Zod).
-- License: MIT.
-- Security: must pass the lockfile npm audit and CI advisory gate before merge.
+- Release: 2026-10-05; stable SDK v2 split package.
+- Adoption: 11.74 million npm downloads in 2026-10-01 through 2026-10-07.
+- Maintainers: active official Model Context Protocol TypeScript SDK repository; five npm maintainers.
+- Direct runtime dependencies: one (Zod).
+- License: Apache-2.0.
+- Security: paired with patched client 2.3.1; OSV reports no advisory for this version, and the lockfile npm audit reports no runtime advisory at admission.
 - Rationale: shared official MCP wire types and validation used by the client,
-  server, and Node adapter.
+  server, and Node adapter; Node built-ins do not implement MCP schemas.
 
-## @modelcontextprotocol/node@2.0.0
+## @modelcontextprotocol/node@2.1.1
 
-- Release line: stable SDK v2 split package.
-- Maintainers: official Model Context Protocol project with six npm maintainers.
-- Runtime dependencies: one plus two peers.
-- License: MIT.
-- Security: the 2026-08-12 audit has no high or critical runtime advisory. Its
-  nested Hono adapter has a moderate Windows-only `serve-static` advisory; this
-  service does not import or expose that adapter's static-file middleware.
+- Release: 2026-10-02; stable SDK v2 split package.
+- Adoption: 2.71 million npm downloads in 2026-10-01 through 2026-10-07.
+- Maintainers: active official Model Context Protocol TypeScript SDK repository; five npm maintainers.
+- Direct runtime dependencies: two plus peer dependency on the MCP server.
+- License: Apache-2.0.
+- Security: OSV reports no advisory for this version, and the lockfile npm audit reports no runtime advisory at admission.
 - Rationale: official adapter between Node HTTP requests and the web-standard
-  dual-era MCP handler.
+  dual-era MCP handler; Node built-ins do not provide that handler.
 
-## @modelcontextprotocol/server@2.0.0
+## @modelcontextprotocol/server@2.3.1
 
-- Release line: stable SDK v2 split package.
-- Maintainers: official Model Context Protocol project with seven npm maintainers.
-- Runtime dependencies: two, including the exact matching core package.
-- License: MIT.
-- Security: must pass the lockfile npm audit and CI advisory gate before merge.
+- Release: 2026-10-05; stable SDK v2 split package.
+- Adoption: 9.53 million npm downloads in 2026-10-01 through 2026-10-07.
+- Maintainers: active official Model Context Protocol TypeScript SDK repository; six npm maintainers.
+- Direct runtime dependencies: two, including the exact matching core package.
+- License: Apache-2.0.
+- Security: OSV reports no advisory for this version, and the lockfile npm audit reports no runtime advisory at admission.
 - Rationale: official MCP server and dual-era HTTP handler supporting both the
-  2025-11-25 and 2026-07-28 protocol generations.
+  2025-11-25 and 2026-07-28 protocol generations; Node built-ins do not implement MCP.
 
 ## fastify@5.12.5
 

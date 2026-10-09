@@ -1,5 +1,6 @@
 import type { ClientTokenRecord, Upstream } from '@approval-mcp/contracts';
 import type { ConfigState } from '@approval-mcp/state-store';
+import { SELF_UPSTREAM_ID } from '../self-mcp-tools.js';
 
 export interface EntityDisplayNames {
   tokenLabel?: string;
@@ -26,7 +27,7 @@ export function entityDisplayNames(
   const tokenLabel = nonEmpty(
     (token as ClientTokenRecord | undefined)?.label,
   );
-  const upstreamAlias = nonEmpty(
+  const upstreamAlias = upstreamId === SELF_UPSTREAM_ID ? 'Approval MCP' : nonEmpty(
     (upstream as Upstream | undefined)?.displayName,
   ) ?? nonEmpty(
     (upstream as Upstream | undefined)?.alias,

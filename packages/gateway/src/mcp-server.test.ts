@@ -244,6 +244,57 @@ describe('validateOrigin', () => {
 });
 
 describe('Streamable HTTP MCP integration', () => {
+  it('notifies a subscribed modern client when the tool catalog changes', async () => {
+    let currentTools = tools.slice(0, 1);
+    const gateway = new TokenScopedGateway({
+      coordinator: { call: vi.fn() },
+      catalogFor: () => buildTokenCatalog(tokenA, currentTools, new Map([
+        [tokenA, new Set(['signal__send_message', 'signal__list_groups'])],
+      ])),
+    });
+    const handler = createMcpHttpHandler({
+      allowedOrigins: ['https://admin.example.test'],
+      authenticate: async (token) => token === 'valid' ? tokenA : undefined,
+      gateway,
+    });
+    const server = createServer((request, response) => { void handler(request, response); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+    const client = new Client(
+      { name: 'catalog-change-test', version: '1.0.0' },
+      { capabilities: {}, versionNegotiation: { mode: 'auto' } },
+    );
+    let subscription: Awaited<ReturnType<Client['listen']>> | undefined;
+    try {
+      await client.connect(new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${address.port}/mcp`),
+        { requestInit: { headers: { authorization: 'Bearer valid', origin: 'https://admin.example.test' } } },
+      ));
+      expect(client.getProtocolEra()).toBe('modern');
+      const changed = new Promise<void>((resolve) => {
+        client.setNotificationHandler('notifications/tools/list_changed', () => resolve());
+      });
+      subscription = await client.listen({ toolsListChanged: true });
+      currentTools = tools;
+      handler.notifyToolsChanged();
+      await Promise.race([
+        changed,
+        new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('No tools/list_changed notification')), 3_000)),
+      ]);
+      await expect(client.listTools()).resolves.toMatchObject({
+        tools: [{ name: 'signal__list_groups' }, { name: 'signal__send_message' }],
+      });
+    } finally {
+      await subscription?.close();
+      await client.close();
+      await handler.close();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => error === undefined ? resolve() : reject(error)),
+      );
+    }
+  });
+
   it('serves the same authenticated gateway over legacy and modern MCP', async () => {
     const coordinator = {
       call: vi.fn(async (input: { arguments: Record<string, unknown> }) => {

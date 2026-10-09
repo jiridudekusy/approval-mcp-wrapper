@@ -37,3 +37,13 @@ The image runs as the unprivileged `node` user. Use a read-only root filesystem
 with `/data` as its writable volume. Probe `/health/live` for liveness and
 `/health/ready` for readiness. Individual upstream failures are visible in the
 admin UI but do not make the wrapper globally unready.
+
+Upstream tool catalogs are checked every 30 seconds while the server runs.
+Changes also become visible immediately when an administrator uses **Discover
+tools** in Upstreams or Profiles. The server notifies subscribed modern MCP
+clients when the catalog or profile visibility changes. Older clients that do
+not subscribe to tool-list changes may still need to re-list tools or reconnect;
+restarting Approval MCP itself is not required. Newly discovered tools follow
+the existing profile rules: a server-wide rule applies automatically, while
+an otherwise unconfigured tool stays hidden until it is configured in
+**Access → Profiles**.

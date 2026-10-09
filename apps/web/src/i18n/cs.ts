@@ -132,6 +132,8 @@ export const cs: Record<MessageKey, string> = {
   'access.defaultHint': 'Agent bez přiřazeného profilu používá výchozí profil.',
   'access.newToken': 'Vygenerovat token',
   'access.tokenLabel': 'Název tokenu',
+  'access.managerToken': 'Povolit správcovské MCP nástroje (jen s odpovídajícím profilem)',
+  'access.managerBadge': 'Správa MCP',
   'access.tokenHint': 'Tajný token se po vytvoření zobrazí právě jednou.',
   'access.createToken': 'Vytvořit token',
   'access.revoked': 'ZRUŠENO',

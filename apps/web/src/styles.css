@@ -1086,6 +1086,18 @@ pre,
   color: var(--muted);
 }
 
+.token-form .token-manager-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.token-form .token-manager-option input {
+  width: auto;
+  flex: none;
+}
+
 .modal-actions,
 .management-actions,
 .form-actions {

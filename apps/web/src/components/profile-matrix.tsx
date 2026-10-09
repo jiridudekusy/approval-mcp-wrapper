@@ -41,11 +41,13 @@ function StatePill({ outcome, inherited }: { outcome: RuleOutcome | undefined; i
   return <span className={`state-pill ${outcome}`}><Icon name={icon} />{label(t, outcome)}{inherited && <small> · {t('profiles.viaServer')}</small>}</span>;
 }
 
-export function ProfileMatrix({ upstreams, catalogs, rules, busy, onSetRule, onSetRules, onRemoveRule }: {
+export function ProfileMatrix({ upstreams, catalogs, rules, busy, refreshingCatalogs, onRefreshCatalogs, onSetRule, onSetRules, onRemoveRule }: {
   upstreams: readonly { id: string; alias: string; displayName?: string }[];
   catalogs: Readonly<Record<string, ToolCatalogView | undefined>>;
   rules: readonly ProfileRuleView[];
   busy: boolean;
+  refreshingCatalogs: boolean;
+  onRefreshCatalogs(): void;
   onSetRule(upstreamId: string, toolName: string | undefined, outcome: RuleOutcome): void;
   onSetRules(upstreamId: string, toolNames: readonly string[], outcome: RuleOutcome | 'inherit'): Promise<void>;
   onRemoveRule(rule: ProfileRuleView): void;
@@ -76,6 +78,7 @@ export function ProfileMatrix({ upstreams, catalogs, rules, busy, onSetRule, onS
   return <div className="profile-matrix">
     <div className="profile-filter-bar">
       <label className="search-field"><Icon name="search" /><input type="search" value={query} placeholder={t('profiles.searchTools')} onChange={(event) => setQuery(event.target.value)} /></label>
+      <button type="button" className="text-action" disabled={refreshingCatalogs} onClick={onRefreshCatalogs}><Icon name="refresh" />{refreshingCatalogs ? t('upstreams.discovering') : t('upstreams.discover')}</button>
       <button type="button" className="filter-toggle" aria-pressed={overriddenOnly} onClick={() => setOverriddenOnly((value) => !value)}><Icon name="filter" />{t('profiles.overriddenOnly')}</button>
       <button type="button" className="text-action" onClick={() => setExpanded(Object.fromEntries(upstreams.map((item) => [item.id, true])))}>{t('profiles.expandAll')}</button>
       <button type="button" className="text-action" onClick={() => setExpanded(Object.fromEntries(upstreams.map((item) => [item.id, false])))}>{t('profiles.collapseAll')}</button>

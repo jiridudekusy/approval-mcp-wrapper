@@ -20,11 +20,19 @@ import {
   MIN_APPROVAL_TIMEOUT_SECONDS,
   MIN_TOOL_CALL_TIMEOUT_SECONDS,
 } from '@approval-mcp/contracts';
-import type { ConfigStateStore, StateOperation } from '@approval-mcp/state-store';
+import type { ConfigStateStore, StateEvent, StateOperation } from '@approval-mcp/state-store';
 import type { FastifyInstance } from 'fastify';
 
 import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
+import { SELF_TOOLS, SELF_UPSTREAM_ID } from '../self-mcp-tools.js';
+
+function validRuleTarget(state: ConfigStateStore, upstreamId: string, toolName?: string): boolean {
+  if (upstreamId === SELF_UPSTREAM_ID) {
+    return toolName === undefined || SELF_TOOLS.some((tool) => tool.name === toolName);
+  }
+  return state.read((current) => current.upstreams[upstreamId]) !== undefined;
+}
 
 function upsert(collection: StateOperation['collection'], id: string, value: unknown): StateOperation {
   return {
@@ -179,9 +187,22 @@ async function initializeProfiles(state: ConfigStateStore): Promise<void> {
 
 export async function registerProfileRoutes(
   app: FastifyInstance,
-  options: { sessions: SessionService; state: ConfigStateStore },
+  options: { sessions: SessionService; state: ConfigStateStore; onVisibilityChanged?(): void },
 ): Promise<void> {
   await initializeProfiles(options.state);
+  app.get('/api/admin/self/tools', async (request, reply) => {
+    if (!await authorizeAdmin(request, reply, options.sessions, false)) return;
+    return {
+      upstreamId: SELF_UPSTREAM_ID,
+      refreshedAt: new Date().toISOString(),
+      tools: SELF_TOOLS,
+    };
+  });
+  const mutate = async (event: StateEvent) => {
+    const state = await options.state.mutate(event);
+    options.onVisibilityChanged?.();
+    return state;
+  };
   let writeQueue: Promise<void> = Promise.resolve();
   const serialized = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = writeQueue.then(operation);
@@ -246,7 +267,7 @@ export async function registerProfileRoutes(
       updatedAt: now,
       version: 1,
     };
-    await options.state.mutate(upsert('profiles', profile.id, profile));
+    await mutate(upsert('profiles', profile.id, profile));
     return reply.code(201).send(profile);
   });
 
@@ -299,7 +320,7 @@ export async function registerProfileRoutes(
       version: current.version + 1,
     };
     operations.push(upsert('profiles', id, updated));
-    await options.state.mutate({ type: 'records.batch', operations });
+    await mutate({ type: 'records.batch', operations });
     return updated;
     });
   });
@@ -318,7 +339,7 @@ export async function registerProfileRoutes(
     if (deletion === undefined) return reply.code(404).send({ error: { code: 'profile.not_found', message: 'Profile not found', requestId: request.id } });
     if (deletion.profile.isDefault) return reply.code(409).send({ error: { code: 'profile.default_required', message: 'Choose another default profile first', requestId: request.id } });
     if (body.version !== deletion.profile.version) return reply.code(409).send({ error: { code: 'state.version_conflict', message: 'The record has changed', requestId: request.id } });
-    await options.state.mutate({
+    await mutate({
       type: 'records.batch',
       operations: [
         ...deletion.ruleIds.map((ruleId) => ({ type: 'record.deleted' as const, collection: 'profileRules' as const, id: ruleId })),
@@ -353,13 +374,14 @@ export async function registerProfileRoutes(
     if (
       options.state.read((state) => state.profiles[id]) === undefined ||
       typeof body.upstreamId !== 'string' ||
-      options.state.read((state) => state.upstreams[body.upstreamId as string]) === undefined ||
+      !validRuleTarget(options.state, body.upstreamId) ||
       !Array.isArray(body.toolNames) ||
       body.toolNames.length === 0 ||
       body.toolNames.length > 500 ||
       !body.toolNames.every(
         (toolName) => typeof toolName === 'string' && toolName.length > 0,
       ) ||
+      (body.upstreamId === SELF_UPSTREAM_ID && !body.toolNames.every((toolName) => validRuleTarget(options.state, body.upstreamId as string, toolName))) ||
       !['allow', 'deny', 'require_approval', 'inherit'].includes(
         String(body.outcome),
       )
@@ -405,7 +427,7 @@ export async function registerProfileRoutes(
       operations.push(upsert('profileRules', rule.id, rule));
     }
     if (operations.length > 0) {
-      await options.state.mutate({ type: 'records.batch', operations });
+      await mutate({ type: 'records.batch', operations });
     }
     return { updated: operations.length };
     });
@@ -419,7 +441,7 @@ export async function registerProfileRoutes(
     if (
       options.state.read((state) => state.profiles[id]) === undefined ||
       typeof body.upstreamId !== 'string' ||
-      options.state.read((state) => state.upstreams[body.upstreamId as string]) === undefined ||
+      !validRuleTarget(options.state, body.upstreamId, typeof body.toolName === 'string' ? body.toolName : undefined) ||
       (body.toolName !== undefined && (typeof body.toolName !== 'string' || body.toolName.length === 0)) ||
       !['allow', 'deny', 'require_approval'].includes(String(body.outcome))
     ) {
@@ -444,7 +466,7 @@ export async function registerProfileRoutes(
       updatedAt: now,
       version: (existing?.version ?? 0) + 1,
     };
-    await options.state.mutate(upsert('profileRules', rule.id, rule));
+    await mutate(upsert('profileRules', rule.id, rule));
     return rule;
     });
   });
@@ -453,7 +475,7 @@ export async function registerProfileRoutes(
     if (!await authorizeAdmin(request, reply, options.sessions, true)) return;
     const { id } = request.params as { id: string };
     if (options.state.read((state) => state.profileRules[id]) === undefined) return reply.code(404).send({ error: { code: 'profile_rule.not_found', message: 'Profile rule not found', requestId: request.id } });
-    await options.state.mutate({ type: 'record.deleted', collection: 'profileRules', id });
+    await mutate({ type: 'record.deleted', collection: 'profileRules', id });
     return reply.code(204).send();
   });
 
@@ -514,7 +536,7 @@ export async function registerProfileRoutes(
         );
       }
       if (operations.length > 0) {
-        await options.state.mutate({ type: 'records.batch', operations });
+        await mutate({ type: 'records.batch', operations });
       }
       const profileIds = options.state.read((state) =>
         (Object.values(
@@ -564,7 +586,7 @@ export async function registerProfileRoutes(
       };
       operations.push(upsert('tokenProfileAssignments', assignment.id, assignment));
     }
-    if (operations.length > 0) await options.state.mutate({ type: 'records.batch', operations });
+    if (operations.length > 0) await mutate({ type: 'records.batch', operations });
     return { profileIds };
     });
   });

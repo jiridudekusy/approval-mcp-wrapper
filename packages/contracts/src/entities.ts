@@ -47,6 +47,7 @@ export interface Upstream extends VersionedRecord {
 export interface ClientTokenRecord extends VersionedRecord {
   id: ClientTokenId;
   label: string;
+  canManageApprovalMcp?: boolean;
   hash: string;
   salt: string;
   revokedAt?: string;

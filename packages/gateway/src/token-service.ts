@@ -117,6 +117,7 @@ export class TokenService {
 
   async create(
     label: string,
+    canManageApprovalMcp = false,
   ): Promise<{ record: ClientTokenRecord; plaintext: string }> {
     const normalizedLabel = label.trim();
     if (normalizedLabel.length === 0 || normalizedLabel.length > 120) {
@@ -130,6 +131,7 @@ export class TokenService {
     const record: ClientTokenRecord = {
       id,
       label: normalizedLabel,
+      ...(canManageApprovalMcp ? { canManageApprovalMcp: true } : {}),
       hash: encodeVerifier(salt, hash),
       salt: salt.toString('base64url'),
       schemaVersion: 1,

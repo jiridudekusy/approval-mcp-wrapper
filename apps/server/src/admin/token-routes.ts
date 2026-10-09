@@ -27,6 +27,7 @@ export async function registerTokenRoutes(
         return {
           id: record.id,
           label: record.label,
+          canManageApprovalMcp: record.canManageApprovalMcp === true,
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
           version: record.version,
@@ -57,17 +58,18 @@ export async function registerTokenRoutes(
     ) {
       return;
     }
-    const body = request.body as { label?: unknown };
-    if (typeof body.label !== 'string') {
+    const body = request.body as { label?: unknown; canManageApprovalMcp?: unknown };
+    if (typeof body.label !== 'string' || (body.canManageApprovalMcp !== undefined && typeof body.canManageApprovalMcp !== 'boolean')) {
       reply.code(400);
       return { error: { code: 'input.invalid', message: 'Invalid token label', requestId: request.id } };
     }
-    const created = await options.tokens.create(body.label);
+    const created = await options.tokens.create(body.label, body.canManageApprovalMcp === true);
     reply.code(201);
     return {
       record: {
         id: created.record.id,
         label: created.record.label,
+        canManageApprovalMcp: created.record.canManageApprovalMcp === true,
         createdAt: created.record.createdAt,
         version: created.record.version,
       },

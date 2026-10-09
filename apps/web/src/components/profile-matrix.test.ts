@@ -42,6 +42,8 @@ describe('profile tool matrix', () => {
             },
           ],
           busy: false,
+          refreshingCatalogs: false,
+          onRefreshCatalogs: () => undefined,
           onSetRule: () => undefined,
           onSetRules: async () => undefined,
           onRemoveRule: () => undefined,
@@ -52,6 +54,7 @@ describe('profile tool matrix', () => {
     expect(html).toContain('Work messages');
     expect(html).toContain('signal_work');
     expect(html).toContain('All tools');
+    expect(html).toContain('Discover tools');
     expect(html).toContain('get_messages');
     expect(html).toContain('send_message');
     expect(html).toContain('Select all visible tools');

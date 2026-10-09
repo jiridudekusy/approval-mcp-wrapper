@@ -51,9 +51,11 @@ export class UpstreamRegistry extends EventEmitter {
   readonly #connections = new Map<UpstreamId, McpConnection>();
   readonly #catalogs = new Map<UpstreamId, ToolCatalog>();
   readonly #health = new Map<UpstreamId, UpstreamHealth>();
+  readonly #refreshes = new Map<UpstreamId, Promise<ToolCatalog>>();
   readonly #connectionFactory: McpConnectionFactory;
   readonly #credentialVault: CredentialVault | undefined;
   readonly #now: () => Date;
+  #generation = 0;
 
   constructor(options: RegistryOptions) {
     super();
@@ -81,23 +83,38 @@ export class UpstreamRegistry extends EventEmitter {
   }
 
   async refresh(upstreamId: UpstreamId): Promise<ToolCatalog> {
-    const upstream = this.#requireUpstream(upstreamId);
+    this.#requireUpstream(upstreamId);
+    const ongoing = this.#refreshes.get(upstreamId);
+    if (ongoing !== undefined) return ongoing;
+    const refresh = this.#refreshCatalog(upstreamId);
+    this.#refreshes.set(upstreamId, refresh);
     try {
-      const previous = this.#connections.get(upstreamId);
-      if (previous !== undefined) await previous.close();
-      const credentials =
-        upstream.credentials === undefined
-          ? undefined
-          : this.#requireCredentialVault().decrypt(
-              upstreamId,
-              upstream.credentials,
-            );
-      const connection = await this.#connectionFactory.connect({
-        url: new URL(upstream.url),
-        allowPrivateNetwork: upstream.allowPrivateNetwork,
-        ...(credentials === undefined ? {} : { credentials }),
-      });
-      const result = await connection.listTools();
+      return await refresh;
+    } finally {
+      if (this.#refreshes.get(upstreamId) === refresh) {
+        this.#refreshes.delete(upstreamId);
+      }
+    }
+  }
+
+  async #refreshCatalog(upstreamId: UpstreamId): Promise<ToolCatalog> {
+    const upstream = this.#requireUpstream(upstreamId);
+    const generation = this.#generation;
+    const previous = this.#connections.get(upstreamId);
+    let connection = previous;
+    try {
+      if (connection === undefined) connection = await this.#connect(upstream);
+      let result: Awaited<ReturnType<McpConnection['listTools']>>;
+      try {
+        result = await connection.listTools();
+      } catch (error) {
+        if (connection !== previous) throw error;
+        connection = await this.#connect(upstream);
+        result = await connection.listTools();
+      }
+      if (generation !== this.#generation) {
+        throw new Error('Upstream configuration changed during discovery');
+      }
       const tools = [...result.tools].sort((left, right) =>
         left.name.localeCompare(right.name),
       );
@@ -107,19 +124,41 @@ export class UpstreamRegistry extends EventEmitter {
         refreshedAt: checkedAt,
         tools,
       };
-      this.#connections.set(upstreamId, connection);
+      if (connection !== previous) {
+        this.#connections.set(upstreamId, connection);
+        if (previous !== undefined) await previous.close().catch(() => undefined);
+      }
+      const oldCatalog = this.#catalogs.get(upstreamId);
       this.#catalogs.set(upstreamId, catalog);
       this.#health.set(upstreamId, { status: 'healthy', checkedAt });
-      this.emit('catalogChanged', catalog);
+      if (oldCatalog === undefined || JSON.stringify(oldCatalog.tools) !== JSON.stringify(catalog.tools)) {
+        this.emit('catalogChanged', catalog);
+      }
       return catalog;
     } catch (error) {
-      this.#health.set(upstreamId, {
-        status: 'unhealthy',
-        checkedAt: this.#now().toISOString(),
-        error: errorMessage(error),
-      });
+      if (connection !== undefined && connection !== previous && this.#connections.get(upstreamId) !== connection) {
+        await connection.close().catch(() => undefined);
+      }
+      if (generation === this.#generation) {
+        this.#health.set(upstreamId, {
+          status: 'unhealthy',
+          checkedAt: this.#now().toISOString(),
+          error: errorMessage(error),
+        });
+      }
       throw error;
     }
+  }
+
+  async #connect(upstream: Upstream): Promise<McpConnection> {
+    const credentials = upstream.credentials === undefined
+      ? undefined
+      : this.#requireCredentialVault().decrypt(upstream.id, upstream.credentials);
+    return this.#connectionFactory.connect({
+      url: new URL(upstream.url),
+      allowPrivateNetwork: upstream.allowPrivateNetwork,
+      ...(credentials === undefined ? {} : { credentials }),
+    });
   }
 
   getCatalog(upstreamId: UpstreamId): ToolCatalog | undefined {
@@ -158,6 +197,8 @@ export class UpstreamRegistry extends EventEmitter {
   }
 
   async close(): Promise<void> {
+    this.#generation += 1;
+    await Promise.allSettled(this.#refreshes.values());
     await Promise.all(
       [...this.#connections.values()].map((connection) => connection.close()),
     );

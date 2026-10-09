@@ -84,6 +84,7 @@ describe('PolicyCallCoordinator', () => {
 
     expect(upstream.call).toHaveBeenCalledTimes(1);
     expect(upstream.call).toHaveBeenCalledWith({
+      clientTokenId: policy.clientTokenId,
       upstreamId: policy.upstreamId,
       toolName: policy.toolName,
       arguments: { message: 'hello', authorization: 'secret' },

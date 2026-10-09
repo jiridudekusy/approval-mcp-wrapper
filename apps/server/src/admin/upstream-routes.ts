@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import type { SessionService } from '../session-store.js';
 import { authorizeAdmin } from './authorization.js';
+import { SELF_UPSTREAM_ALIAS } from '../self-mcp-tools.js';
 
 const MAX_DISPLAY_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 1_000;
@@ -213,6 +214,7 @@ export async function registerUpstreamRoutes(
     const metadata = upstreamMetadata(body.metadata);
     if (
       typeof body.alias !== 'string' ||
+      body.alias === SELF_UPSTREAM_ALIAS ||
       typeof body.url !== 'string' ||
       typeof body.allowPrivateNetwork !== 'boolean' ||
       displayName === invalidInput ||
@@ -308,7 +310,8 @@ export async function registerUpstreamRoutes(
     if (
       displayName === invalidInput ||
       description === invalidInput ||
-      metadata === invalidInput
+      metadata === invalidInput ||
+      body.alias === SELF_UPSTREAM_ALIAS
     ) {
       reply.code(400);
       return {

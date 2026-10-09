@@ -37,6 +37,7 @@ export interface AdminRouteOptions {
   }>[];
   push?: PushAdminService;
   onUpstreamsChanged?(): Promise<void>;
+  onVisibilityChanged?(): void;
   discoverTools?(upstreamId: UpstreamId): Promise<ToolCatalog>;
 }
 
