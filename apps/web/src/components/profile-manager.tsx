@@ -8,7 +8,7 @@ import { runProfileMutation } from './profile-manager-actions.js';
 import { ProfileMatrix, type ProfileRuleView, type RuleOutcome } from './profile-matrix.js';
 
 export interface ProfileView { id: string; name: string; isDefault: boolean; approvalTimeoutSeconds: number; toolCallTimeoutSeconds: number; ruleCount: number; tokenCount: number; version: number }
-export interface ProfileTokenView { id: string; label: string; profileIds: string[]; canManageApprovalMcp?: boolean; revokedAt?: string }
+export interface ProfileTokenView { id: string; label: string; version: number; profileIds: string[]; canManageApprovalMcp?: boolean; revokedAt?: string }
 
 export function effectiveOutcomeCounts(upstreams: readonly { id: string }[], catalogs: Readonly<Record<string, ToolCatalogView | undefined>>, rules: readonly ProfileRuleView[]) {
   const counts = { allow: 0, deny: 0, require_approval: 0 };
@@ -22,13 +22,14 @@ export function effectiveOutcomeCounts(upstreams: readonly { id: string }[], cat
   return counts;
 }
 
-export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, onChanged }: {
+export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, onChanged, onTokenRotated }: {
   mode: 'agents' | 'profiles';
   csrfToken: string;
   profiles: readonly ProfileView[];
   tokens: readonly ProfileTokenView[];
   upstreams: readonly { id: string; alias: string; displayName?: string }[];
   onChanged(): void;
+  onTokenRotated?(plaintext: string): void;
 }) {
   const { t } = useI18n();
   const [selectedId, setSelectedId] = useState('');
@@ -39,6 +40,11 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState(false);
   const [editingAgent, setEditingAgent] = useState<string>();
+  const [agentDraft, setAgentDraft] = useState<{ label: string; canManageApprovalMcp: boolean }>();
+  const [confirmRotateAgent, setConfirmRotateAgent] = useState<string>();
+  const [confirmDeleteAgent, setConfirmDeleteAgent] = useState<string>();
+  const [agentActionBusy, setAgentActionBusy] = useState<string>();
+  const [agentActionError, setAgentActionError] = useState<string>();
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
   const [approvalTimeoutDraft, setApprovalTimeoutDraft] = useState('60');
@@ -104,6 +110,32 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
     catch { setAssignments((current) => ({ ...current, [token.id]: previous })); setAssignmentError(true); }
     finally { setAssignmentBusy((current) => { const updated = new Set(current); updated.delete(key); return updated; }); }
   };
+  const saveAgent = async (token: ProfileTokenView, event: FormEvent) => {
+    event.preventDefault();
+    if (agentDraft === undefined) return;
+    setAgentActionBusy(token.id); setAgentActionError(undefined);
+    try {
+      await api(`/api/admin/tokens/${token.id}`, { method: 'PUT', body: JSON.stringify({ version: token.version, ...agentDraft }) }, csrfToken);
+      setEditingAgent(undefined); onChanged();
+    } catch { setAgentActionError(token.id); }
+    finally { setAgentActionBusy(undefined); }
+  };
+  const rotateAgent = async (token: ProfileTokenView) => {
+    setAgentActionBusy(token.id); setAgentActionError(undefined);
+    try {
+      const result = await api<{ plaintext: string }>(`/api/admin/tokens/${token.id}/rotate`, { method: 'POST', body: JSON.stringify({ version: token.version }) }, csrfToken);
+      onTokenRotated?.(result.plaintext); setConfirmRotateAgent(undefined); onChanged();
+    } catch { setAgentActionError(token.id); }
+    finally { setAgentActionBusy(undefined); }
+  };
+  const deleteAgent = async (token: ProfileTokenView) => {
+    setAgentActionBusy(token.id); setAgentActionError(undefined);
+    try {
+      await api(`/api/admin/tokens/${token.id}`, { method: 'DELETE', body: JSON.stringify({ version: token.version }) }, csrfToken);
+      setConfirmDeleteAgent(undefined); setEditingAgent(undefined); onChanged();
+    } catch { setAgentActionError(token.id); }
+    finally { setAgentActionBusy(undefined); }
+  };
 
   if (mode === 'agents') return <div className="agent-list">
     {tokens.map((token) => {
@@ -113,8 +145,11 @@ export function ProfileManager({ mode, csrfToken, profiles, tokens, upstreams, o
         <span className="agent-avatar"><Icon name="account-key" size={20} /></span>
         <div className="agent-identity"><strong>{token.label}</strong>{token.canManageApprovalMcp && <small className="neutral-badge">{t('access.managerBadge')}</small>}{token.revokedAt && <small className="neutral-badge">{t('access.revoked')}</small>}<code title={token.id}>{token.id.length > 18 ? `${token.id.slice(0, 12)}…${token.id.slice(-5)}` : token.id}</code></div>
         <div className="profile-chips">{assigned.length > 0 ? assigned.map((profile) => <span key={profile.id}><Icon name="shield-account" />{profile.name}</span>) : <span className="implicit-chip">{defaultProfile?.name ?? t('profiles.default')} ({t('profiles.default')})</span>}</div>
-        <button className="secondary-button" type="button" disabled={token.revokedAt !== undefined} onClick={() => setEditingAgent(editingAgent === token.id ? undefined : token.id)}>{editingAgent === token.id ? t('common.done') : t('profiles.editAssignments')}</button>
-        {editingAgent === token.id && <div className="agent-profile-editor"><strong>{t('profiles.assignedProfiles')}</strong>{assignmentError && <p className="error-inline" role="alert">{t('profiles.assignmentFailed')}</p>}<div>{profiles.filter((profile) => !profile.isDefault).map((profile) => { const key = `${token.id}:${profile.id}`; return <label key={profile.id}><input type="checkbox" disabled={assignmentBusy.has(key)} checked={assignedIds.includes(profile.id)} onChange={(event) => void toggleAssignment(token, profile.id, event.target.checked)} />{profile.name}<small>{profile.ruleCount} {t('profiles.rules')}</small></label>; })}</div><p>{t('profiles.precedence')}</p></div>}
+        <div className="agent-actions"><button className="secondary-button" type="button" disabled={agentActionBusy === token.id} onClick={() => { setEditingAgent(editingAgent === token.id ? undefined : token.id); setAgentDraft({ label: token.label, canManageApprovalMcp: token.canManageApprovalMcp === true }); setConfirmRotateAgent(undefined); setConfirmDeleteAgent(undefined); }}>{editingAgent === token.id ? t('common.done') : t('access.editAgent')}</button><button className="secondary-button" type="button" disabled={token.revokedAt !== undefined || agentActionBusy === token.id} onClick={() => { setConfirmRotateAgent(token.id); setConfirmDeleteAgent(undefined); setEditingAgent(undefined); }}>{t('access.rotateToken')}</button><button className="danger-link" type="button" disabled={agentActionBusy === token.id} onClick={() => { setConfirmDeleteAgent(token.id); setConfirmRotateAgent(undefined); setEditingAgent(undefined); }}>{t('access.deleteAgent')}</button></div>
+        {agentActionError === token.id && <p className="agent-action-error error-inline" role="alert">{t('access.agentActionFailed')}</p>}
+        {editingAgent === token.id && agentDraft && <div className="agent-profile-editor"><form className="agent-details-form" onSubmit={(event) => void saveAgent(token, event)}><label>{t('access.tokenLabel')}<input required maxLength={120} value={agentDraft.label} onChange={(event) => setAgentDraft((current) => current && { ...current, label: event.target.value })} /></label><label className="agent-manager-toggle"><input type="checkbox" checked={agentDraft.canManageApprovalMcp} onChange={(event) => setAgentDraft((current) => current && { ...current, canManageApprovalMcp: event.target.checked })} />{t('access.managerToken')}</label><button className="primary compact" type="submit" disabled={agentActionBusy === token.id || agentDraft.label.trim() === ''}>{t('common.save')}</button></form><strong>{t('profiles.assignedProfiles')}</strong>{assignmentError && <p className="error-inline" role="alert">{t('profiles.assignmentFailed')}</p>}<div>{profiles.filter((profile) => !profile.isDefault).map((profile) => { const key = `${token.id}:${profile.id}`; return <label key={profile.id}><input type="checkbox" disabled={assignmentBusy.has(key)} checked={assignedIds.includes(profile.id)} onChange={(event) => void toggleAssignment(token, profile.id, event.target.checked)} />{profile.name}<small>{profile.ruleCount} {t('profiles.rules')}</small></label>; })}</div><p>{t('profiles.precedence')}</p></div>}
+        {confirmRotateAgent === token.id && <div className="agent-confirm" role="alertdialog" aria-label={t('access.rotateToken')}><strong>{t('access.rotateToken')} — {token.label}?</strong><p>{t('access.rotateWarning')}</p><div><button type="button" onClick={() => setConfirmRotateAgent(undefined)}>{t('common.cancel')}</button><button className="primary compact" type="button" disabled={agentActionBusy === token.id} onClick={() => void rotateAgent(token)}>{t('access.rotateToken')}</button></div></div>}
+        {confirmDeleteAgent === token.id && <div className="agent-confirm delete-confirmation" role="alertdialog" aria-label={t('access.deleteAgent')}><strong>{t('access.deleteAgent')} — {token.label}?</strong><p>{t('access.deleteAgentWarning')}</p><div><button type="button" onClick={() => setConfirmDeleteAgent(undefined)}>{t('common.cancel')}</button><button className="danger-button" type="button" disabled={agentActionBusy === token.id} onClick={() => void deleteAgent(token)}>{t('access.deleteAgent')}</button></div></div>}
       </article>;
     })}
   </div>;

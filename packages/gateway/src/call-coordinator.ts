@@ -62,6 +62,7 @@ interface CoordinatorJournal {
 }
 
 interface PolicyCallCoordinatorOptions {
+  isClientActive?(clientTokenId: ClientTokenId): boolean;
   policies(input: AuthorizedToolCall): readonly Policy[];
   grants(): readonly Grant[];
   approvals: CoordinatorApprovalService;
@@ -106,6 +107,9 @@ export class PolicyCallCoordinator implements CallCoordinator {
     input: AuthorizedToolCall,
     signal: AbortSignal,
   ): Promise<CallToolResult> {
+    if (this.#options.isClientActive?.(input.clientTokenId) === false) {
+      throw new PolicyDeniedError('token.revoked');
+    }
     const callId = randomUUID() as CallId;
     const startedAt = this.#options.now?.() ?? new Date();
     const described = await this.#options.describe?.(input);
@@ -217,6 +221,10 @@ export class PolicyCallCoordinator implements CallCoordinator {
       }
     }
 
+    if (this.#options.isClientActive?.(input.clientTokenId) === false) {
+      await this.#terminal(input, callId, 'denied', startedAt, 'token.revoked');
+      throw new PolicyDeniedError('token.revoked');
+    }
     this.#execution.authorize(callId);
     return this.#execution.execute(callId, async () => {
       await this.#append(input, callId, 'upstream.started');

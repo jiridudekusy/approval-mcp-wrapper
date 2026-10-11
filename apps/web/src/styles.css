@@ -1274,6 +1274,53 @@ pre,
   font-size: 12px;
 }
 
+.agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.agent-profile-editor .agent-details-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+
+.agent-details-form > label:first-child {
+  display: grid;
+  min-width: 180px;
+  flex: 1;
+  gap: 5px;
+}
+
+.agent-details-form .agent-manager-toggle {
+  border: 0;
+  background: transparent;
+}
+
+.agent-manager-toggle input {
+  width: auto;
+}
+
+.agent-confirm,
+.agent-action-error {
+  grid-column: 1 / -1;
+}
+
+.agent-confirm {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  padding: 14px;
+}
+
+.agent-confirm p { margin: 0; color: var(--muted); }
+.agent-confirm > div { display: flex; justify-content: flex-end; gap: 8px; }
+
 .profile-editor-layout {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
@@ -3386,7 +3433,8 @@ pre,
     grid-template-columns: 42px minmax(0, 1fr);
   }
 
-  .agent-row > .secondary-button,
+  .agent-row > .agent-actions,
+  .agent-row > .agent-profile-editor,
   .profile-chips {
     grid-column: 1 / -1;
   }

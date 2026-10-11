@@ -11,9 +11,11 @@ import type { TokenRepository } from './token-service.js';
 const tokenRecordSchema = z.object({
   id: z.string().min(1),
   label: z.string(),
+  canManageApprovalMcp: z.boolean().optional(),
   hash: z.string(),
   salt: z.string(),
   revokedAt: z.string().optional(),
+  deletedAt: z.string().optional(),
   lastUsedAt: z.string().optional(),
   schemaVersion: z.number().int().positive(),
   createdAt: z.string(),

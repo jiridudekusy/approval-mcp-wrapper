@@ -665,6 +665,64 @@ describe('admin API', () => {
     ]);
   });
 
+  it('updates an agent, rotates its token, and deletes it without erasing audit identity', async () => {
+    const { app, authHeaders, store } = await fixture();
+    const service = new TokenService(new StateStoreTokenRepository(store));
+    const created = await app.inject({
+      method: 'POST', url: '/api/admin/tokens', headers: authHeaders,
+      payload: { label: 'Agent' },
+    });
+    const { record, plaintext: original } = created.json<{
+      record: { id: string; version: number }; plaintext: string;
+    }>();
+
+    const edited = await app.inject({
+      method: 'PUT', url: `/api/admin/tokens/${record.id}`, headers: authHeaders,
+      payload: { version: record.version, label: 'Work agent', canManageApprovalMcp: true },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json()).toMatchObject({ label: 'Work agent', canManageApprovalMcp: true });
+    await expect(service.authenticate(original)).resolves.toMatchObject({ canManageApprovalMcp: true });
+
+    const rotated = await app.inject({
+      method: 'POST', url: `/api/admin/tokens/${record.id}/rotate`, headers: authHeaders,
+      payload: { version: edited.json().version },
+    });
+    expect(rotated.statusCode).toBe(200);
+    const replacement = rotated.json<{ plaintext: string; version: number }>().plaintext;
+    expect(replacement).not.toBe(original);
+    await expect(service.authenticate(original)).resolves.toBeUndefined();
+    await expect(service.authenticate(replacement)).resolves.toMatchObject({ label: 'Work agent' });
+
+    const demoted = await app.inject({
+      method: 'PUT', url: `/api/admin/tokens/${record.id}`, headers: authHeaders,
+      payload: { version: rotated.json().version, canManageApprovalMcp: false },
+    });
+    expect(demoted.statusCode).toBe(200);
+    await expect(service.authenticate(replacement)).resolves.toMatchObject({ canManageApprovalMcp: false });
+
+    const now = new Date().toISOString();
+    await store.mutate({
+      type: 'record.upserted', collection: 'grants', id: 'agent-grant',
+      value: { id: 'agent-grant', clientTokenId: record.id, createdAt: now },
+    });
+    const deleted = await app.inject({
+      method: 'DELETE', url: `/api/admin/tokens/${record.id}`, headers: authHeaders,
+      payload: { version: demoted.json().version },
+    });
+    expect(deleted.statusCode).toBe(204);
+    await expect(service.authenticate(replacement)).resolves.toBeUndefined();
+    expect(store.read((state) => state.clientTokens[record.id])).toMatchObject({
+      label: 'Work agent', hash: '', salt: '', canManageApprovalMcp: false,
+      deletedAt: expect.any(String),
+    });
+    expect(store.read((state) => state.grants['agent-grant'])).toBeUndefined();
+    const listed = await app.inject({
+      method: 'GET', url: '/api/admin/tokens', headers: { cookie: authHeaders.cookie },
+    });
+    expect(listed.json()).toEqual([]);
+  });
+
   it('adds agent and upstream display names to approvals and history', async () => {
     const now = '2026-07-30T08:28:22.098Z';
     const event = {

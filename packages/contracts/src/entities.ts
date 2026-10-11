@@ -51,6 +51,7 @@ export interface ClientTokenRecord extends VersionedRecord {
   hash: string;
   salt: string;
   revokedAt?: string;
+  deletedAt?: string;
   lastUsedAt?: string;
 }
 

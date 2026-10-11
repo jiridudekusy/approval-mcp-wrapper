@@ -488,7 +488,8 @@ export async function registerProfileRoutes(
       };
       const { assigned } = request.body as { assigned?: unknown };
       const snapshot = options.state.read((state) => ({
-        tokenExists: state.clientTokens[id] !== undefined,
+        tokenExists: state.clientTokens[id] !== undefined &&
+          (state.clientTokens[id] as { deletedAt?: string }).deletedAt === undefined,
         profile: state.profiles[profileId] as unknown as Profile | undefined,
         matching: (Object.values(
           state.tokenProfileAssignments,
@@ -559,7 +560,8 @@ export async function registerProfileRoutes(
     }
     const profileIds = [...new Set(body.profileIds)];
     const snapshot = options.state.read((state) => ({
-      tokenExists: state.clientTokens[id] !== undefined,
+      tokenExists: state.clientTokens[id] !== undefined &&
+        (state.clientTokens[id] as { deletedAt?: string }).deletedAt === undefined,
       validProfiles: profileIds.every((profileId) => {
         const profile = state.profiles[profileId] as unknown as Profile | undefined;
         return profile !== undefined && !profile.isDefault;

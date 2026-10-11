@@ -8,6 +8,7 @@ import type {
   ApprovalId,
   ApprovalOutcome,
   ApprovalRequestInput,
+  ClientTokenId,
   Grant,
   GrantId,
 } from '@approval-mcp/contracts';
@@ -270,6 +271,16 @@ export class ApprovalOrchestrator {
         this.#finishPending(record.approval.id, 'interrupted', reasonCode),
       ),
     );
+  }
+
+  async interruptForToken(clientTokenId: ClientTokenId): Promise<void> {
+    const pending = (await this.#repository.list()).filter(
+      (record) => record.approval.status === 'pending' &&
+        record.request.clientTokenId === clientTokenId,
+    );
+    await Promise.all(pending.map((record) =>
+      this.#finishPending(record.approval.id, 'interrupted', 'token.deleted'),
+    ));
   }
 
   #createGrant(

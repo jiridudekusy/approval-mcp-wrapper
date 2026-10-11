@@ -39,6 +39,24 @@ async function pendingId(repository: InMemoryApprovalRepository): Promise<Approv
 }
 
 describe('ApprovalOrchestrator', () => {
+  it('interrupts only pending approvals for a deleted agent', async () => {
+    const repository = new InMemoryApprovalRepository();
+    const orchestrator = new ApprovalOrchestrator(repository);
+    const first = orchestrator.request(input('first'), new AbortController().signal);
+    const secondInput = { ...input('second'), clientTokenId: 'token-2' as ClientTokenId };
+    const second = orchestrator.request(secondInput, new AbortController().signal);
+    await repository.list();
+
+    await orchestrator.interruptForToken('token-1' as ClientTokenId);
+
+    await expect(first).resolves.toMatchObject({ status: 'interrupted' });
+    const remaining = (await repository.list()).find((record) => record.request.clientTokenId === 'token-2');
+    expect(remaining?.approval.status).toBe('pending');
+    if (remaining === undefined) throw new Error('Missing second approval');
+    await orchestrator.decide(remaining.approval.id, { action: 'deny' }, actor, secondInput.requestHash);
+    await expect(second).resolves.toMatchObject({ status: 'denied' });
+  });
+
   it('notifies listeners immediately after persisting a pending approval', async () => {
     const repository = new InMemoryApprovalRepository();
     const statuses: string[] = [];

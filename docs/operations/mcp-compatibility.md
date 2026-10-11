@@ -39,7 +39,11 @@ Only `inspect_tool` retains its historical default availability when no
 profile rule exists. Other self tools are hidden until configured in a profile.
 History tools always restrict results to the authenticated MCP token; knowing
 another call ID does not grant access. The health and refresh tools require
-both an explicit profile rule and a token created with the **MCP management**
-permission. Existing tokens have no management permission. Management tokens
-should be kept separate from ordinary agent tokens and revoked when no longer
-needed. No self tool can approve or change a profile rule.
+both an explicit profile rule and the agent's **MCP management** permission.
+This permission can be set when creating an agent or changed later in its
+settings without changing its token. Management tokens should be kept separate
+from ordinary agent tokens and rotated or deleted when no longer needed. A
+rotated token keeps the agent's profiles but immediately invalidates the old
+secret; deleting an agent also removes its active grants and profile assignments
+while retaining its identity in audit history. No self tool can approve or
+change a profile rule.

@@ -160,18 +160,60 @@ export class TokenService {
       Buffer.from(record.salt, 'base64url'),
       verifier,
     );
-    if (record.revokedAt !== undefined || !timingSafeEqual(actual, verifier.hash)) {
+    if (record.revokedAt !== undefined || record.deletedAt !== undefined || !timingSafeEqual(actual, verifier.hash)) {
       return undefined;
     }
-    const now = this.#now().toISOString();
-    const updated: ClientTokenRecord = {
+    // Never write the verifier from an authentication snapshot: doing so could
+    // restore an old secret after a concurrent rotation or deletion.
+    const current = await this.#repository.findById(record.id);
+    return current?.hash === record.hash &&
+      current.salt === record.salt &&
+      current.revokedAt === undefined &&
+      current.deletedAt === undefined
+      ? current
+      : undefined;
+  }
+
+  async update(
+    id: ClientTokenId,
+    changes: { label?: string; canManageApprovalMcp?: boolean },
+  ): Promise<ClientTokenRecord> {
+    const normalizedLabel = changes.label?.trim();
+    if (normalizedLabel !== undefined && (normalizedLabel.length === 0 || normalizedLabel.length > 120)) {
+      throw new Error('Token label must contain between 1 and 120 characters');
+    }
+    const record = await this.#repository.findById(id);
+    if (record === undefined || record.deletedAt !== undefined) throw new Error(`Unknown client token: ${id}`);
+    const updated = {
       ...record,
-      lastUsedAt: now,
-      updatedAt: now,
+      ...(normalizedLabel === undefined ? {} : { label: normalizedLabel }),
+      ...(changes.canManageApprovalMcp === undefined
+        ? {}
+        : { canManageApprovalMcp: changes.canManageApprovalMcp }),
+      updatedAt: this.#now().toISOString(),
       version: record.version + 1,
     };
     await this.#repository.save(updated);
-    return structuredClone(updated);
+    return updated;
+  }
+
+  async rotate(id: ClientTokenId): Promise<{ record: ClientTokenRecord; plaintext: string }> {
+    const record = await this.#repository.findById(id);
+    if (record === undefined || record.deletedAt !== undefined || record.revokedAt !== undefined) {
+      throw new Error(`Unknown active client token: ${id}`);
+    }
+    const plaintext = `amcp_${id}_${randomBytes(32).toString('base64url')}`;
+    const salt = randomBytes(16);
+    const hash = await hashToken(plaintext, salt);
+    const updated = {
+      ...record,
+      hash: encodeVerifier(salt, hash),
+      salt: salt.toString('base64url'),
+      updatedAt: this.#now().toISOString(),
+      version: record.version + 1,
+    };
+    await this.#repository.save(updated);
+    return { record: updated, plaintext };
   }
 
   async revoke(id: ClientTokenId): Promise<void> {

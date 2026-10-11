@@ -78,4 +78,35 @@ describe('TokenService', () => {
     expect(stored?.revokedAt).toBeDefined();
     expect(stored?.id).toBe(created.record.id as ClientTokenId);
   });
+
+  it('updates the label and management flag without changing the token or its identity', async () => {
+    const repository = new InMemoryTokenRepository();
+    const service = new TokenService(repository);
+    const created = await service.create('Agent');
+
+    const updated = await service.update(created.record.id, {
+      label: 'Work agent', canManageApprovalMcp: true,
+    });
+
+    expect(updated).toMatchObject({
+      id: created.record.id, label: 'Work agent', canManageApprovalMcp: true,
+    });
+    await expect(service.authenticate(created.plaintext)).resolves.toMatchObject({
+      id: created.record.id, canManageApprovalMcp: true,
+    });
+  });
+
+  it('rotates the secret while preserving the agent ID and denying the old secret', async () => {
+    const repository = new InMemoryTokenRepository();
+    const service = new TokenService(repository);
+    const created = await service.create('Agent', true);
+    const rotated = await service.rotate(created.record.id);
+
+    expect(rotated.plaintext).not.toBe(created.plaintext);
+    expect(rotated.record).toMatchObject({
+      id: created.record.id, label: 'Agent', canManageApprovalMcp: true,
+    });
+    await expect(service.authenticate(created.plaintext)).resolves.toBeUndefined();
+    await expect(service.authenticate(rotated.plaintext)).resolves.toMatchObject({ id: created.record.id });
+  });
 });

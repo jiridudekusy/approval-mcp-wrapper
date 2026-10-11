@@ -7,7 +7,7 @@ import { TokenForm } from '../components/token-form.js';
 import { useI18n } from '../i18n/i18n.js';
 import { useDialogLifecycle } from '../hooks/use-dialog-lifecycle.js';
 
-interface TokenView { id: string; label: string; revokedAt?: string; profileIds: string[] }
+interface TokenView { id: string; label: string; version: number; canManageApprovalMcp?: boolean; revokedAt?: string; profileIds: string[] }
 interface UpstreamView { id: string; alias: string; displayName?: string }
 const SELF_UPSTREAM = { id: 'approval-mcp-self', alias: 'approval_mcp', displayName: 'Approval MCP' };
 
@@ -53,7 +53,7 @@ export function Access({ csrfToken }: { csrfToken: string }) {
         {(['agents', 'profiles', 'permissions'] as const).map((name) => <button role="tab" aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} type="button" key={name} onKeyDown={(event) => { if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return; event.preventDefault(); const tabs = [...event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('[role=tab]')]; const index = tabs.indexOf(event.currentTarget); const next = tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length]; next?.focus(); next?.click(); }} onClick={() => setTab(name)}>{t(`access.${name}`)} <span>{name === 'agents' ? tokens.length : name === 'profiles' ? profiles.length : grants.length}</span></button>)}
       </div>
       {secret !== undefined && <div className="secret-once" role="alert"><div><strong>{t('access.secretOnce')}</strong><code>{secret}</code></div><button type="button" onClick={() => void navigator.clipboard?.writeText(secret)}>{t('common.copy')}</button><button className="icon-button" aria-label={t('common.close')} onClick={() => setSecret(undefined)}>×</button></div>}
-      {tab === 'agents' && <><p className="info-line">{t('access.defaultHint')}</p><ProfileManager mode="agents" csrfToken={csrfToken} profiles={profiles} tokens={tokens} upstreams={upstreams} onChanged={() => void refresh()} /></>}
+      {tab === 'agents' && <><p className="info-line">{t('access.defaultHint')}</p><ProfileManager mode="agents" csrfToken={csrfToken} profiles={profiles} tokens={tokens} upstreams={upstreams} onChanged={() => void refresh()} onTokenRotated={setSecret} /></>}
       {tab === 'profiles' && <ProfileManager mode="profiles" csrfToken={csrfToken} profiles={profiles} tokens={tokens} upstreams={upstreams} onChanged={() => void refresh()} />}
       {tab === 'permissions' && <><p className="section-subtitle">{t('access.activeGrantsSubtitle')}</p><ActiveGrants grants={grants} revokingId={revokingId} onRevoke={(grant) => void revoke(grant)} /></>}
       {creatingToken && <div className="modal-backdrop" role="presentation"><div ref={tokenDialogRef} className="modal-card" role="dialog" aria-modal="true" aria-label={t('access.newToken')}><TokenForm csrfToken={csrfToken} onCancel={closeTokenDialog} onCreated={(value) => { setCreatingToken(false); setSecret(value); void refresh(); }} /></div></div>}

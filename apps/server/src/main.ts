@@ -203,7 +203,13 @@ const approvals = new ApprovalOrchestrator(
   new StateStoreApprovalRepository(stateStore),
   () => new Date(),
   (input) =>
-    evaluatePolicy({
+    stateStore.read((state) => {
+      const token = state.clientTokens[input.clientTokenId] as {
+        revokedAt?: string;
+        deletedAt?: string;
+      } | undefined;
+      return token === undefined || token.revokedAt !== undefined || token.deletedAt !== undefined;
+    }) || evaluatePolicy({
       visible: true,
       clientTokenId: input.clientTokenId,
       upstreamId: input.upstreamId,
@@ -259,6 +265,13 @@ const selfInspectFallback = (clientTokenId: ClientTokenId, toolName: string): Po
   }];
 };
 const coordinator = new PolicyCallCoordinator({
+  isClientActive: (clientTokenId) => stateStore.read((state) => {
+    const token = state.clientTokens[clientTokenId] as {
+      revokedAt?: string;
+      deletedAt?: string;
+    } | undefined;
+    return token !== undefined && token.revokedAt === undefined && token.deletedAt === undefined;
+  }),
   policies: (input) =>
     [...policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
       ...(input.upstreamId === SELF_UPSTREAM_ID ? selfInspectFallback(input.clientTokenId, input.toolName) : [])],
