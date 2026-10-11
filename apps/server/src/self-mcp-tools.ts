@@ -7,7 +7,10 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 
 export const SELF_UPSTREAM_ID = 'approval-mcp-self' as UpstreamId;
 export const SELF_UPSTREAM_ALIAS = 'approval_mcp';
-export const MANAGER_TOOL_NAMES = new Set(['get_upstream_health', 'refresh_upstream_tools']);
+export const MANAGER_TOOL_NAMES = new Set([
+  'get_upstream_health', 'refresh_upstream_tools',
+  'list_all_history', 'get_any_history_event',
+]);
 
 const objectSchema = (properties: Record<string, unknown>, required: string[] = []) => ({
   type: 'object', additionalProperties: false, properties, required,
@@ -45,6 +48,25 @@ export const SELF_TOOLS: readonly McpTool[] = [
   {
     name: 'get_history_event',
     description: 'Get an audited call timeline belonging to this agent token. Sensitive data is redacted by the journal.',
+    inputSchema: objectSchema({ callId: string }, ['callId']),
+  },
+  {
+    name: 'list_all_history',
+    description: 'Manager-only: list audited calls across all agent tokens, with optional agent and other filters. Results are redacted and paginated.',
+    inputSchema: objectSchema({
+      clientTokenId: string,
+      from: { type: 'string', format: 'date-time' },
+      to: { type: 'string', format: 'date-time' },
+      upstreamId: string,
+      toolName: string,
+      finalStatus: { enum: ['abandoned', 'denied', 'error', 'interrupted', 'success', 'timeout'] },
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+      cursor: string,
+    }),
+  },
+  {
+    name: 'get_any_history_event',
+    description: 'Manager-only: get a redacted audited call timeline from any agent token.',
     inputSchema: objectSchema({ callId: string }, ['callId']),
   },
   {
@@ -123,10 +145,12 @@ export async function callSelfTool(
         ...(description === undefined ? {} : { description }),
       })) });
   }
-  if (toolName === 'list_history') {
+  if (toolName === 'list_history' || toolName === 'list_all_history') {
     const limit = args['limit'] ?? 25;
     if (!Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > 100) throw new Error('Invalid limit');
-    const filter: CallFilter = { clientTokenId: tokenId, limit: Number(limit) };
+    const filter: CallFilter = { limit: Number(limit) };
+    if (toolName === 'list_history') filter.clientTokenId = tokenId;
+    else if (args['clientTokenId'] !== undefined) filter.clientTokenId = requiredString(args['clientTokenId'], 'clientTokenId');
     for (const field of ['from', 'to', 'upstreamId', 'toolName', 'finalStatus'] as const) {
       const value = args[field];
       if (value === undefined) continue;
@@ -138,9 +162,9 @@ export async function callSelfTool(
     if (cursor !== undefined && (typeof cursor !== 'string' || cursor.length > 2048)) throw new Error('Invalid cursor');
     return textResult(await services.journal.query(filter, cursor));
   }
-  if (toolName === 'get_history_event') {
+  if (toolName === 'get_history_event' || toolName === 'get_any_history_event') {
     const timeline = await services.journal.get(requiredString(args['callId'], 'callId'));
-    if (timeline === undefined || timeline.events[0]?.clientTokenId !== tokenId) throw new Error('Call not found');
+    if (timeline === undefined || (toolName === 'get_history_event' && timeline.events[0]?.clientTokenId !== tokenId)) throw new Error('Call not found');
     return textResult(timeline);
   }
   const requested = args['upstreamId'];

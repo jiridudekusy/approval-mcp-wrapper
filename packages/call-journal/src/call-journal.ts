@@ -37,7 +37,10 @@ const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
 interface CursorPayload {
-  offset: number;
+  version: 2;
+  firstSeenAt: string;
+  callId: string;
+  scope: string;
 }
 
 function segmentName(timestamp: string): string {
@@ -57,19 +60,34 @@ function encodeCursor(payload: CursorPayload): string {
   return `${value}.${cursorChecksum(value)}`;
 }
 
-function decodeCursor(cursor: string | undefined): CursorPayload {
-  if (cursor === undefined) {
-    return { offset: 0 };
-  }
+function cursorScope(filter: CallFilter): string {
+  const values = [
+    filter.from, filter.to, filter.clientTokenId, filter.upstreamId,
+    filter.toolName, filter.policyOutcome, filter.approvalStatus, filter.finalStatus,
+  ];
+  return createHash('sha256').update(JSON.stringify(values)).digest('hex').slice(0, 16);
+}
+
+function decodeCursor(cursor: string | undefined, scope: string): CursorPayload | undefined {
+  if (cursor === undefined) return undefined;
+  if (cursor.length > 2048) throw new Error('Invalid history cursor');
   const [value, checksum] = cursor.split('.');
   if (value === undefined || checksum !== cursorChecksum(value)) {
     throw new Error('Invalid history cursor');
   }
-  const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as CursorPayload;
-  if (!Number.isInteger(parsed.offset) || parsed.offset < 0) {
-    throw new Error('Invalid history cursor offset');
+  let parsed: Partial<CursorPayload>;
+  try {
+    parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<CursorPayload>;
+  } catch {
+    throw new Error('Invalid history cursor');
   }
-  return parsed;
+  if (parsed === null || typeof parsed !== 'object' ||
+    parsed.version !== 2 || parsed.scope !== scope ||
+    typeof parsed.firstSeenAt !== 'string' || !Number.isFinite(Date.parse(parsed.firstSeenAt)) ||
+    typeof parsed.callId !== 'string' || parsed.callId.length === 0 || parsed.callId.length > 256) {
+    throw new Error('Invalid history cursor');
+  }
+  return parsed as CursorPayload;
 }
 
 function matches(event: CallEvent, filter: CallFilter): boolean {
@@ -188,14 +206,21 @@ class FileCallJournal implements CallJournal {
     const timelines = await this.timelines(filter);
     const summaries = [...timelines.values()]
       .map(summarize)
-      .sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
-    const { offset } = decodeCursor(cursor);
+      .sort((left, right) =>
+        right.firstSeenAt.localeCompare(left.firstSeenAt) || right.callId.localeCompare(left.callId));
+    const scope = cursorScope(filter);
+    const anchor = decodeCursor(cursor, scope);
+    const remaining = anchor === undefined ? summaries : summaries.filter((item) =>
+      item.firstSeenAt < anchor.firstSeenAt ||
+      (item.firstSeenAt === anchor.firstSeenAt && item.callId < anchor.callId));
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
-    const items = summaries.slice(offset, offset + limit);
-    const nextOffset = offset + items.length;
+    const items = remaining.slice(0, limit);
+    const last = items.at(-1);
     return {
       items,
-      ...(nextOffset < summaries.length ? { nextCursor: encodeCursor({ offset: nextOffset }) } : {}),
+      ...(last !== undefined && items.length < remaining.length
+        ? { nextCursor: encodeCursor({ version: 2, firstSeenAt: last.firstSeenAt, callId: last.callId, scope }) }
+        : {}),
     };
   }
 

@@ -80,6 +80,29 @@ describe('CallJournal', () => {
     expect(page.nextCursor).toBeUndefined();
   });
 
+  it('does not repeat or skip calls when new calls and completion events arrive between pages', async () => {
+    const journal = await createCallJournal(await tempDataDir());
+    for (const [callId, timestamp] of [
+      ['call-a', '2026-07-28T10:00:00.000Z'],
+      ['call-b', '2026-07-28T09:00:00.000Z'],
+      ['call-c', '2026-07-28T08:00:00.000Z'],
+    ] as const) {
+      await journal.append(event({ callId, eventId: `received-${callId}`, timestamp }));
+    }
+    const first = await journal.query({ limit: 1 });
+    expect(first.items.map((item) => item.callId)).toEqual(['call-a']);
+
+    await journal.append(event({ callId: 'call-d', eventId: 'received-call-d', timestamp: '2026-07-28T11:00:00.000Z' }));
+    await journal.append(event({ callId: 'call-c', eventId: 'completed-call-c', timestamp: '2026-07-28T12:00:00.000Z', type: 'call.completed', finalStatus: 'success' }));
+    const second = await journal.query({ limit: 1 }, first.nextCursor);
+    const third = await journal.query({ limit: 1 }, second.nextCursor);
+    expect([second.items[0]?.callId, third.items[0]?.callId]).toEqual(['call-b', 'call-c']);
+    expect(third.items[0]?.finalStatus).toBe('success');
+    expect(third.nextCursor).toBeUndefined();
+    await expect(journal.query({ clientTokenId: 'another-token', limit: 1 }, first.nextCursor))
+      .rejects.toThrow('Invalid history cursor');
+  });
+
   it('rebuilds an index from source events', async () => {
     const dataDir = await tempDataDir();
     const segment = join(dataDir, 'calls-2026-07-28.jsonl');

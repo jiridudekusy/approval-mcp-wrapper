@@ -81,4 +81,25 @@ describe('Approval MCP self tools', () => {
     expect(manager.refresh).toHaveBeenCalledWith(upstreamId);
     expect(result.structuredContent).toMatchObject({ upstreamId, toolCount: 1 });
   });
+
+  it('lets only managers read cross-agent history, without broadening the own-history tools', async () => {
+    const ordinary = fixture();
+    await expect(callSelfTool(ordinary.services, tokenId, 'list_all_history', {}))
+      .rejects.toThrow('Manager permission required');
+    await expect(callSelfTool(ordinary.services, tokenId, 'get_any_history_event', { callId: 'other-call' }))
+      .rejects.toThrow('Manager permission required');
+    expect(ordinary.query).not.toHaveBeenCalled();
+    expect(ordinary.get).not.toHaveBeenCalled();
+
+    const manager = fixture(true);
+    await callSelfTool(manager.services, tokenId, 'list_all_history', { limit: 10 });
+    expect(manager.query).toHaveBeenLastCalledWith({ limit: 10 }, undefined);
+    await callSelfTool(manager.services, tokenId, 'list_all_history', { clientTokenId: otherTokenId, limit: 5 });
+    expect(manager.query).toHaveBeenLastCalledWith({ clientTokenId: otherTokenId, limit: 5 }, undefined);
+    manager.get.mockResolvedValue({ callId: 'other-call', events: [{ clientTokenId: otherTokenId }] });
+    await expect(callSelfTool(manager.services, tokenId, 'get_history_event', { callId: 'other-call' }))
+      .rejects.toThrow('Call not found');
+    const detail = await callSelfTool(manager.services, tokenId, 'get_any_history_event', { callId: 'other-call' });
+    expect(detail.structuredContent).toMatchObject({ callId: 'other-call' });
+  });
 });
