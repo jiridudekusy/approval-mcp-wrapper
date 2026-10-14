@@ -274,6 +274,9 @@ const labels: Readonly<Record<string, Translated>> = {
   lat: { en: 'Latitude', cs: 'Zeměpisná šířka' },
   latitude: { en: 'Latitude', cs: 'Zeměpisná šířka' },
   limit: { en: 'Limit', cs: 'Limit' },
+  offset: { en: 'Offset', cs: 'Posun' },
+  page: { en: 'Page', cs: 'Stránka' },
+  cursor: { en: 'Continuation cursor', cs: 'Pokračovací kurzor' },
   list: { en: 'Reminder list', cs: 'Seznam připomínek' },
   lists: { en: 'Reminder lists', cs: 'Seznamy připomínek' },
   location: { en: 'Location', cs: 'Místo' },
@@ -401,7 +404,11 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
       }
       chat = { id: referencedMessage.chatId, name: name ?? null };
     }
-    const fields: ApprovalField[] = definition.fields.flatMap((key) => {
+    const orderedKeys = [
+      ...definition.fields,
+      ...Object.keys(args).filter((key) => !definition.fields.includes(key)).sort(),
+    ];
+    const fields: ApprovalField[] = orderedKeys.flatMap((key) => {
       const value = args[key];
       if (value === undefined) return [];
       return [{
@@ -427,8 +434,14 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
     const namedTarget = chat?.name !== null && chat?.name !== undefined
       ? chat
       : contact?.name !== null && contact?.name !== undefined ? contact : undefined;
+    const bookingTarget = this.id === 'krkonoskewellness' && input.toolName === 'book'
+      ? [
+          typeof args['start'] === 'string' ? args['start'] : undefined,
+          typeof args['service_id'] === 'number' ? `#${args['service_id']}` : undefined,
+        ].filter((value): value is string => value !== undefined).join(' · ')
+      : undefined;
     const target = namedTarget === undefined
-      ? rawTarget
+      ? bookingTarget || rawTarget
       : `${namedTarget.name} (${namedTarget.id})`.slice(0, 200);
     const risk = this.id === 'krkonoskewellness' && input.toolName === 'book' && args['confirm'] !== true
       ? 'info'

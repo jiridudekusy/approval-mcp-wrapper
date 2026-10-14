@@ -34,6 +34,23 @@ describe('connected approval plugins', () => {
     }
   });
 
+  it('shows every supplied parameter in the readable request section across all connected plugins', async () => {
+    for (const [id, definitions] of Object.entries(CONNECTED_TOOL_DEFINITIONS)) {
+      const plugin = new ConnectedApprovalPlugin(id as ConnectedPluginId);
+      for (const toolName of Object.keys(definitions)) {
+        const result = await plugin.describe(input(toolName, {
+          page: 3, offset: 40, limit: 20, futureFlag: true,
+        }));
+        const fields = result.sections.find((section) => section.id === 'request')?.fields ?? [];
+        for (const [key, value] of Object.entries({ page: 3, offset: 40, limit: 20, futureFlag: true })) {
+          expect(fields, `${id}.${toolName} omits ${key}`).toContainEqual(
+            expect.objectContaining({ value }),
+          );
+        }
+      }
+    }
+  });
+
   it('shows the full WhatsApp message and scopes repeated approval to the exact recipient', async () => {
     const plugin = new ConnectedApprovalPlugin('whatsapp');
     const recipient = `${'1234567890'.repeat(12)}@s.whatsapp.net`;
@@ -144,6 +161,7 @@ describe('connected approval plugins', () => {
     expect(preview.sections[0]?.risk).toBe('info');
     expect(preview.title.fallback.en).toContain('Preview');
     expect(booking.sections[0]?.risk).toBe('danger');
+    expect(booking.title.params?.['target']).toBe('2026-10-15T14:30 · #42');
     expect(booking.sections[0]?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: 'Pokoj 5' }),
       expect.objectContaining({ value: true }),

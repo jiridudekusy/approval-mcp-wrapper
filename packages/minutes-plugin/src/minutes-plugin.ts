@@ -147,6 +147,44 @@ function stringValue(
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+const additionalLabels: Readonly<Record<string, Readonly<{ en: string; cs: string }>>> = {
+  cursor: { en: 'Continuation cursor', cs: 'Pokračovací kurzor' },
+  limit: { en: 'Limit', cs: 'Limit' },
+  offset: { en: 'Offset', cs: 'Posun' },
+  page: { en: 'Page', cs: 'Stránka' },
+  from: { en: 'From', cs: 'Od' },
+  to: { en: 'To', cs: 'Do' },
+  order: { en: 'Sort order', cs: 'Řazení' },
+  direction: { en: 'Direction', cs: 'Směr' },
+};
+
+function readableKey(key: string): string {
+  return key.replace(/([a-z\d])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ');
+}
+
+function shownByCuratedFields(
+  key: string,
+  value: JsonValue,
+  args: Readonly<Record<string, JsonValue>>,
+  toolName: string,
+): boolean {
+  if (['conversationId', 'groupId', 'contactId', 'recordingId'].includes(key)) {
+    return stringValue(args, 'messageId') === undefined && typeof value === 'string' && value.length > 0;
+  }
+  if (key === 'messageId' || ['text', 'query', 'title'].includes(key)) {
+    return typeof value === 'string' && value.length > 0;
+  }
+  if (['phoneNumber', 'username', 'attachmentId', 'description'].includes(key)) {
+    return typeof value === 'string';
+  }
+  if (key === 'emoji') return typeof value === 'string' || value === null;
+  if (key === 'memberIds') return Array.isArray(value);
+  // Resolved roles can omit extra properties, so retain the exact input as well.
+  if (key === 'withVideo') return toolName === 'start_call' && typeof value === 'boolean';
+  return ['editDetails', 'addMembers', 'inviteLink', 'announcementsOnly', 'seconds',
+    'disappearingMessagesSeconds', 'avatarPath'].includes(key);
+}
+
 function entityValue(entity: EntityDisplay): JsonValue {
   return { id: entity.id, name: entity.name };
 }
@@ -288,6 +326,21 @@ export class MinutesApprovalPlugin implements ApprovalPlugin {
       stringValue(args, 'query');
     await this.#describeMembers(input, args, fields);
     this.#describeArguments(input.toolName, args, fields);
+    for (const [key, value] of Object.entries(args).sort(([left], [right]) => left.localeCompare(right))) {
+      if (shownByCuratedFields(key, value, args, input.toolName)) continue;
+      const unverifiedTarget = stringValue(args, 'messageId') !== undefined &&
+        ['conversationId', 'groupId', 'contactId', 'recordingId'].includes(key);
+      const label = unverifiedTarget
+        ? { en: `Caller-supplied ${readableKey(key)} (unverified)`, cs: `Zadané ${readableKey(key)} (neověřeno)` }
+        : additionalLabels[key];
+      const readable = readableKey(key);
+      fields.push(field(
+        `minutes.field.additional.${key}`,
+        label?.en ?? readable,
+        label?.cs ?? readable,
+        structuredClone(value),
+      ));
+    }
 
     const sections: ApprovalSection[] = [
       {

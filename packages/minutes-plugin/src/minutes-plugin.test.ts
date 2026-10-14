@@ -20,6 +20,21 @@ describe('MinutesApprovalPlugin', () => {
     }
   });
 
+  it('shows pagination, filters and unknown new parameters in the readable request section', async () => {
+    const args = {
+      query: 'rozpočet', cursor: 'next-page', limit: 25, order: 'desc',
+      from: '2026-10-01', to: '2026-10-31', futureFlag: true,
+    };
+    const result = await new MinutesApprovalPlugin().describe({
+      upstreamId: 'minutes-id', upstreamAlias: 'minutes',
+      toolName: 'search_messages', arguments: args,
+    });
+    const requestFields = result.sections.find((section) => section.id === 'request')?.fields ?? [];
+    for (const [key, value] of Object.entries(args)) {
+      expect(requestFields, `Missing ${key}`).toContainEqual(expect.objectContaining({ value }));
+    }
+  });
+
   it('shows the complete message text and resolves its conversation', async () => {
     const readJson = vi.fn().mockResolvedValue({
       id: 'family-id',
@@ -123,6 +138,7 @@ describe('MinutesApprovalPlugin', () => {
     });
 
     expect(result.normalizedContext['conversationId']).toBe('real-chat');
+    expect(result.sections[0]?.fields).toContainEqual(expect.objectContaining({ value: 'forged-chat' }));
     expect(result.proposedScopes[0]?.predicates).toEqual([
       { path: '/conversationId', operator: 'equals', value: 'real-chat' },
     ]);
