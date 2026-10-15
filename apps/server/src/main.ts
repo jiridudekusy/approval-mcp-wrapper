@@ -125,6 +125,14 @@ const pluginRegistry = new PluginRegistry([
         timeoutMs: 3_000,
       });
     },
+    async listWellnessServices(upstreamId) {
+      return upstreams.call({
+        upstreamId: upstreamId as Upstream['id'],
+        toolName: 'services',
+        arguments: {},
+        timeoutMs: 3_000,
+      });
+    },
   }),
   new MinutesApprovalPlugin({
     async readMessage(upstreamId, messageId) {

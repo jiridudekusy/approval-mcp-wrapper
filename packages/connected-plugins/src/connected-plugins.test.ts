@@ -169,6 +169,48 @@ describe('connected approval plugins', () => {
     expect(booking.proposedScopes).toEqual([]);
   });
 
+  it('resolves wellness service and therapist names by exact ID without hiding the IDs', async () => {
+    const listWellnessServices = vi.fn().mockResolvedValue({
+      content: [{ text: JSON.stringify({ services: [
+        { id: 62431, name: 'Relaxacni masaz', therapists: [
+          { id: 111, name: 'Jina maserka' }, { id: 44952, name: 'Alena' },
+        ] },
+        { id: 98765, name: 'Jina sluzba' },
+      ] }) }],
+    });
+    const plugin = new ConnectedApprovalPlugin('krkonoskewellness', {
+      findContact: vi.fn(), listWellnessServices,
+    });
+    const result = await plugin.describe(input('book', {
+      service_id: 62431, therapist_id: 44952, start: '2026-10-17T20:00', confirm: true,
+    }));
+
+    expect(listWellnessServices).toHaveBeenCalledWith('upstream-1');
+    expect(result.title.params?.['target']).toBe('Relaxacni masaz (#62431) · 2026-10-17T20:00');
+    expect(result.sections[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: { id: 62431, name: 'Relaxacni masaz' } }),
+      expect.objectContaining({ value: { id: 44952, name: 'Alena' } }),
+    ]));
+    expect(result.sections[1]?.fields[0]?.value).toMatchObject({ service_id: 62431, therapist_id: 44952 });
+  });
+
+  it('keeps wellness IDs when catalog lookup fails or does not match exactly', async () => {
+    const plugin = new ConnectedApprovalPlugin('krkonoskewellness', {
+      findContact: vi.fn(),
+      listWellnessServices: vi.fn().mockResolvedValue({ services: [
+        { id: 624310, name: 'Wrong service', therapists: [{ id: 449520, name: 'Wrong therapist' }] },
+      ] }),
+    });
+    const result = await plugin.describe(input('book', {
+      service_id: 62431, therapist_id: 44952, start: '2026-10-17T20:00', confirm: true,
+    }));
+    expect(result.sections[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 62431 }),
+      expect.objectContaining({ value: 44952 }),
+    ]));
+    expect(result.title.params?.['target']).toBe('2026-10-17T20:00 · #62431');
+  });
+
   it('limits location approval to one person for one hour', async () => {
     const result = await new ConnectedApprovalPlugin('geo').describe(input('where_is', {
       person: 'iva',

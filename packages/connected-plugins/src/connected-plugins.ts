@@ -112,6 +112,7 @@ export interface ConnectedContactLookup {
   findContact(upstreamId: string, source: 'whatsapp' | 'imcp', identifier: string): Promise<unknown>;
   findChat?(upstreamId: string, identifier: string): Promise<unknown>;
   findMessage?(upstreamId: string, identifier: string): Promise<unknown>;
+  listWellnessServices?(upstreamId: string): Promise<unknown>;
 }
 
 interface ContactDisplay {
@@ -182,6 +183,48 @@ function findContactName(result: unknown, identifier: string): string | undefine
     const text = nonemptyString(record['text']);
     if (text !== undefined && (text.startsWith('{') || text.startsWith('['))) {
       try { pending.push(JSON.parse(text) as unknown); } catch { /* A non-JSON tool message is not a contact. */ }
+    }
+  }
+  return undefined;
+}
+
+function findWellnessName(result: unknown, kind: 'service' | 'therapist', identifier: string): string | undefined {
+  const pending: { value: unknown; context: 'service' | 'therapist' }[] = [{ value: result, context: 'service' }];
+  let inspected = 0;
+  while (pending.length > 0 && inspected < 500) {
+    const entry = pending.shift()!;
+    inspected += 1;
+    if (Array.isArray(entry.value)) {
+      pending.push(...entry.value.slice(0, 500).map((value) => ({ value, context: entry.context })));
+      continue;
+    }
+    const item = objectValue(entry.value);
+    if (item === undefined) continue;
+    const explicitId = item[`${kind}_id`];
+    const id = explicitId ?? (entry.context === kind ? item['id'] : undefined);
+    if ((typeof id === 'number' || typeof id === 'string') && String(id) === identifier) {
+      const name = kind === 'service'
+        ? nonemptyString(item['service_name']) ?? nonemptyString(item['title']) ??
+          (entry.context === kind ? nonemptyString(item['name']) : undefined)
+        : nonemptyString(item['therapist_name']) ?? nonemptyString(item['full_name']) ??
+          (entry.context === kind ? nonemptyString(item['name']) : undefined) ??
+          [nonemptyString(item['first_name']), nonemptyString(item['last_name'])].filter(Boolean).join(' ');
+      if (name !== undefined && name.length > 0) return name.slice(0, 100);
+    }
+    for (const [key, value] of Object.entries(item)) {
+      if (value === null || typeof value !== 'object') {
+        if (key === 'text') {
+          const text = nonemptyString(value);
+          if (text?.startsWith('{') || text?.startsWith('[')) {
+            try { pending.push({ value: JSON.parse(text) as unknown, context: entry.context }); }
+            catch { /* Plain text is not a catalog entry. */ }
+          }
+        }
+        continue;
+      }
+      const context = ['therapists', 'therapist', 'staff'].includes(key) ? 'therapist'
+        : ['services', 'service'].includes(key) ? 'service' : entry.context;
+      pending.push({ value, context });
     }
   }
   return undefined;
@@ -404,6 +447,24 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
       }
       chat = { id: referencedMessage.chatId, name: name ?? null };
     }
+    let serviceName: string | undefined;
+    let therapistName: string | undefined;
+    if (this.id === 'krkonoskewellness' &&
+        (input.toolName === 'book' || input.toolName === 'availability') &&
+        (args['service_id'] !== undefined || args['therapist_id'] !== undefined) &&
+        this.contacts?.listWellnessServices !== undefined) {
+      try {
+        const catalog = await this.contacts.listWellnessServices(input.upstreamId);
+        const serviceId = args['service_id'];
+        const therapistId = args['therapist_id'];
+        if (typeof serviceId === 'string' || typeof serviceId === 'number') {
+          serviceName = findWellnessName(catalog, 'service', String(serviceId));
+        }
+        if (typeof therapistId === 'string' || typeof therapistId === 'number') {
+          therapistName = findWellnessName(catalog, 'therapist', String(therapistId));
+        }
+      } catch { /* Unavailable catalog must not prevent approval. */ }
+    }
     const orderedKeys = [
       ...definition.fields,
       ...Object.keys(args).filter((key) => !definition.fields.includes(key)).sort(),
@@ -415,7 +476,10 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
         label: message(`${this.id}.field.${key}`, labels[key] ?? { en: key, cs: key }),
         value: key === chatKey && chat !== undefined
           ? contactValue(chat)
-          : key === contactKey && contact !== undefined ? contactValue(contact) : structuredClone(value),
+          : key === contactKey && contact !== undefined ? contactValue(contact)
+            : key === 'service_id' && serviceName !== undefined ? { id: structuredClone(value), name: serviceName }
+              : key === 'therapist_id' && therapistName !== undefined ? { id: structuredClone(value), name: therapistName }
+                : structuredClone(value),
       }];
     });
     if (referencedMessage?.text !== undefined) {
@@ -436,8 +500,9 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
       : contact?.name !== null && contact?.name !== undefined ? contact : undefined;
     const bookingTarget = this.id === 'krkonoskewellness' && input.toolName === 'book'
       ? [
+          serviceName === undefined ? undefined : `${serviceName} (#${args['service_id']})`,
           typeof args['start'] === 'string' ? args['start'] : undefined,
-          typeof args['service_id'] === 'number' ? `#${args['service_id']}` : undefined,
+          serviceName === undefined && typeof args['service_id'] === 'number' ? `#${args['service_id']}` : undefined,
         ].filter((value): value is string => value !== undefined).join(' · ')
       : undefined;
     const target = namedTarget === undefined
