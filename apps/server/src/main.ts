@@ -133,6 +133,14 @@ const pluginRegistry = new PluginRegistry([
         timeoutMs: 3_000,
       });
     },
+    async findCalendarEvents(upstreamId, start, end) {
+      return upstreams.call({
+        upstreamId: upstreamId as Upstream['id'],
+        toolName: 'events_fetch',
+        arguments: { start, end },
+        timeoutMs: 5_000,
+      });
+    },
   }),
   new MinutesApprovalPlugin({
     async readMessage(upstreamId, messageId) {

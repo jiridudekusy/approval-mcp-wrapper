@@ -113,6 +113,7 @@ export interface ConnectedContactLookup {
   findChat?(upstreamId: string, identifier: string): Promise<unknown>;
   findMessage?(upstreamId: string, identifier: string): Promise<unknown>;
   listWellnessServices?(upstreamId: string): Promise<unknown>;
+  findCalendarEvents?(upstreamId: string, start: string, end: string): Promise<unknown>;
 }
 
 interface ContactDisplay {
@@ -264,6 +265,67 @@ function findMessage(result: unknown, identifier: string): MessageDisplay | unde
     }
   }
   return undefined;
+}
+
+interface CalendarEventDisplay {
+  title: string;
+  start?: string;
+  end?: string;
+  calendar?: string;
+}
+
+function calendarEvent(result: unknown, identifier: string, occurrence?: string): CalendarEventDisplay | undefined {
+  const pending: unknown[] = [result];
+  let inspected = 0;
+  while (pending.length > 0 && inspected < 1000) {
+    const value = pending.shift();
+    inspected += 1;
+    if (Array.isArray(value)) {
+      pending.push(...value.slice(0, 1000));
+      continue;
+    }
+    const item = objectValue(value);
+    if (item === undefined) continue;
+    if (item['isError'] === true) continue;
+    if (nonemptyString(item['identifier']) === identifier) {
+      const start = nonemptyString(item['startDate'] ?? item['start']);
+      const sameOccurrence = occurrence === undefined || (start !== undefined &&
+        (start.slice(0, 16) === occurrence.slice(0, 16) ||
+          (/[zZ]|[+-]\d\d:?\d\d$/.test(start) && /[zZ]|[+-]\d\d:?\d\d$/.test(occurrence) &&
+            Date.parse(start) === Date.parse(occurrence))));
+      const title = nonemptyString(item['name'] ?? item['title']);
+      if (sameOccurrence && title !== undefined) {
+        const calendarValue = item['calendar'] ?? item['eventCalendar'];
+        const calendar = nonemptyString(calendarValue) ?? nonemptyString(objectValue(calendarValue)?.['name']) ??
+          nonemptyString(objectValue(calendarValue)?.['title']) ?? nonemptyString(item['calendarName']);
+        const end = nonemptyString(item['endDate'] ?? item['end']);
+        return {
+          title: title.slice(0, 200),
+          ...(occurrence === undefined || start === undefined ? {} : { start }),
+          ...(occurrence === undefined || end === undefined ? {} : { end }),
+          ...(calendar === undefined ? {} : { calendar }),
+        };
+      }
+    }
+    for (const key of ['structuredContent', 'content', 'events', 'results', 'items', 'data', '@graph']) {
+      if (item[key] !== undefined) pending.push(item[key]);
+    }
+    const text = nonemptyString(item['text']);
+    if (text?.startsWith('{') || text?.startsWith('[')) {
+      try { pending.push(JSON.parse(text) as unknown); } catch { /* Ignore non-JSON tool output. */ }
+    }
+  }
+  return undefined;
+}
+
+function eventLookupWindow(occurrence?: string): { start: string; end: string } {
+  const parsed = occurrence === undefined ? new Date() : new Date(`${occurrence.slice(0, 10)}T12:00:00Z`);
+  const center = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const day = 24 * 60 * 60 * 1000;
+  return {
+    start: new Date(center.getTime() - (occurrence === undefined ? 30 : 2) * day).toISOString(),
+    end: new Date(center.getTime() + (occurrence === undefined ? 365 : 2) * day).toISOString(),
+  };
 }
 
 function contactIdentifierKey(pluginId: ConnectedPluginId, toolName: string): string | undefined {
@@ -465,6 +527,20 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
         }
       } catch { /* Unavailable catalog must not prevent approval. */ }
     }
+    const deletingEvent = this.id === 'imcp' && input.toolName === 'events_delete';
+    const eventId = deletingEvent ? nonemptyString(args['identifier']) : undefined;
+    const occurrence = deletingEvent ? nonemptyString(args['start']) : undefined;
+    let event: CalendarEventDisplay | undefined;
+    if (eventId !== undefined && this.contacts?.findCalendarEvents !== undefined) {
+      try {
+        const window = eventLookupWindow(occurrence);
+        event = calendarEvent(
+          await this.contacts.findCalendarEvents(input.upstreamId, window.start, window.end),
+          eventId,
+          occurrence,
+        );
+      } catch { /* Unavailable calendar lookup must not prevent an approval request. */ }
+    }
     const orderedKeys = [
       ...definition.fields,
       ...Object.keys(args).filter((key) => !definition.fields.includes(key)).sort(),
@@ -472,6 +548,7 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
     const fields: ApprovalField[] = orderedKeys.flatMap((key) => {
       const value = args[key];
       if (value === undefined) return [];
+      if (deletingEvent && (key === 'identifier' || key === 'span')) return [];
       const wellnessField = this.id === 'krkonoskewellness' &&
         (input.toolName === 'book' || input.toolName === 'availability');
       const label = wellnessField && key === 'service_id'
@@ -480,6 +557,8 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
           ? { en: 'Therapist', cs: 'Masérka' }
           : this.id === 'krkonoskewellness' && input.toolName === 'book' && key === 'start'
             ? { en: 'Appointment', cs: 'Termín' }
+          : deletingEvent && key === 'start'
+            ? { en: 'When', cs: 'Kdy' }
           : wellnessField && key === 'confirm'
             ? { en: 'Booking', cs: 'Rezervace' }
             : labels[key] ?? { en: key, cs: key };
@@ -495,6 +574,32 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
                 : structuredClone(value),
       }];
     });
+    if (deletingEvent) {
+      fields.unshift({
+        label: message('imcp.field.event', { en: 'Event', cs: 'Událost' }),
+        value: event?.title ?? null,
+      });
+      if (event?.end !== undefined) {
+        fields.push({ label: message('imcp.field.event_end', { en: 'Ends', cs: 'Konec' }), value: event.end });
+      }
+      if (event?.calendar !== undefined) {
+        fields.push({ label: message('imcp.field.event_calendar', { en: 'Calendar', cs: 'Kalendář' }), value: event.calendar });
+      }
+      fields.push({
+        label: message('imcp.field.deletion_scope', { en: 'Deletion scope', cs: 'Rozsah smazání' }),
+        value: args['span'] === 'futureEvents' ? 'futureEvents' : 'thisEvent',
+      });
+      if (occurrence === undefined) {
+        fields.push({
+          label: message('imcp.field.occurrence_status', { en: 'Occurrence', cs: 'Výskyt' }),
+          value: null,
+        });
+      }
+      fields.push({
+        label: message('imcp.field.identifier', labels['identifier']!),
+        value: eventId ?? '',
+      });
+    }
     if (referencedMessage?.text !== undefined) {
       fields.push({
         label: message(`${this.id}.field.message_text`, { en: 'Message text', cs: 'Text zprávy' }),
@@ -514,7 +619,7 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
     const bookingTarget = this.id === 'krkonoskewellness' && input.toolName === 'book'
       ? serviceName ?? (targetValue(args['service_id']) === undefined ? undefined : `#${args['service_id']}`)
       : undefined;
-    const target = namedTarget === undefined
+    const target = deletingEvent ? event?.title : namedTarget === undefined
       ? bookingTarget || (this.id === 'krkonoskewellness' && input.toolName === 'availability' ? serviceName : undefined) || rawTarget
       : `${namedTarget.name} (${namedTarget.id})`.slice(0, 200);
     const risk = this.id === 'krkonoskewellness' && input.toolName === 'book' && args['confirm'] !== true

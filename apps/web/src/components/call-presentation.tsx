@@ -115,6 +115,14 @@ export function CallPresentation({
           <dt>{localizedMessage(item.label, locale)}</dt>
           <dd>{item.label.key === 'krkonoskewellness.field.confirm' && typeof item.value === 'boolean'
             ? t(item.value ? 'approval.bindingBooking' : 'approval.previewBooking')
+            : item.label.key === 'imcp.field.event' && item.value === null
+              ? t('approval.eventUnverified')
+              : item.label.key === 'imcp.field.occurrence_status'
+                ? t('approval.occurrenceUnspecified')
+              : item.label.key === 'imcp.field.deletion_scope'
+                ? t(item.value === 'futureEvents' ? 'approval.deleteFutureEvents' : 'approval.deleteThisEvent')
+                : item.label.key === 'imcp.field.identifier' && typeof item.value === 'string' && item.value.length > 24
+                  ? <details className="event-identifier"><summary>{item.value.slice(0, 8)}…{item.value.slice(-8)} · {t('approval.showFullIdentifier')}</summary><code>{item.value}</code></details>
             : valueView(item.value, locale, t('approval.unknownEntity'), t('approval.nameUnverified'))}</dd>
         </div>
       ))}

@@ -51,6 +51,49 @@ describe('connected approval plugins', () => {
     }
   });
 
+  it('identifies a calendar deletion only from an exact event and occurrence match', async () => {
+    const identifier = '850BC08E-A873-4728-82D6-A42E8C4E7637:D12CE56E-89BC-40BE-8AFA-74E99C761667';
+    const findCalendarEvents = vi.fn().mockResolvedValue({ content: [{ text: JSON.stringify([
+      { identifier: 'other', name: 'Wrong event', startDate: '2026-10-17T20:00:00+02:00' },
+      { identifier, name: 'Previous occurrence', startDate: '2026-10-10T20:00:00+02:00' },
+      { identifier, name: 'Kontrola u lékaře', startDate: '2026-10-17T20:00:00+02:00',
+        endDate: '2026-10-17T21:00:00+02:00', calendar: { name: 'Soukromý' } },
+    ]) }] });
+    const plugin = new ConnectedApprovalPlugin('imcp', { findContact: vi.fn(), findCalendarEvents });
+    const result = await plugin.describe(input('events_delete', {
+      identifier, start: '2026-10-17T20:00', span: 'futureEvents',
+    }));
+
+    expect(findCalendarEvents).toHaveBeenCalledOnce();
+    expect(result.title.params?.['target']).toBe('Kontrola u lékaře');
+    expect(result.sections[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: 'Kontrola u lékaře' }),
+      expect.objectContaining({ value: 'Soukromý' }),
+      expect.objectContaining({ value: 'futureEvents' }),
+      expect.objectContaining({ value: identifier }),
+    ]));
+    expect(result.proposedScopes).toEqual([]);
+  });
+
+  it('does not present an opaque calendar ID or unrelated event as the deletion title', async () => {
+    const identifier = '850BC08E-A873-4728-82D6-A42E8C4E7637:D12CE56E-89BC-40BE-8AFA-74E99C761667';
+    const plugin = new ConnectedApprovalPlugin('imcp', {
+      findContact: vi.fn(),
+      findCalendarEvents: vi.fn().mockResolvedValue({ events: [
+        { identifier: 'other', name: 'Cizí schůzka' },
+      ] }),
+    });
+    const result = await plugin.describe(input('events_delete', { identifier }));
+
+    expect(result.title.params?.['target']).toBeUndefined();
+    expect(result.title.fallback.cs).toBe('Smazat událost z kalendáře');
+    expect(result.sections[0]?.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: null }),
+      expect.objectContaining({ value: 'thisEvent' }),
+      expect.objectContaining({ value: identifier }),
+    ]));
+  });
+
   it('shows the full WhatsApp message and scopes repeated approval to the exact recipient', async () => {
     const plugin = new ConnectedApprovalPlugin('whatsapp');
     const recipient = `${'1234567890'.repeat(12)}@s.whatsapp.net`;
