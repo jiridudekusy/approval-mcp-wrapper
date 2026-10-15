@@ -161,7 +161,7 @@ describe('connected approval plugins', () => {
     expect(preview.sections[0]?.risk).toBe('info');
     expect(preview.title.fallback.en).toContain('Preview');
     expect(booking.sections[0]?.risk).toBe('danger');
-    expect(booking.title.params?.['target']).toBe('2026-10-15T14:30 · #42');
+    expect(booking.title.params?.['target']).toBe('#42');
     expect(booking.sections[0]?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: 'Pokoj 5' }),
       expect.objectContaining({ value: true }),
@@ -186,7 +186,8 @@ describe('connected approval plugins', () => {
     }));
 
     expect(listWellnessServices).toHaveBeenCalledWith('upstream-1');
-    expect(result.title.params?.['target']).toBe('Relaxacni masaz (#62431) · 2026-10-17T20:00');
+    expect(result.title.params?.['target']).toBe('Relaxacni masaz');
+    expect(result.title.fallback.cs).toBe('Rezervace: {target}');
     expect(result.sections[0]?.fields).toEqual(expect.arrayContaining([
       expect.objectContaining({ value: { id: 62431, name: 'Relaxacni masaz' } }),
       expect.objectContaining({ value: { id: 44952, name: 'Alena' } }),
@@ -205,10 +206,10 @@ describe('connected approval plugins', () => {
       service_id: 62431, therapist_id: 44952, start: '2026-10-17T20:00', confirm: true,
     }));
     expect(result.sections[0]?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ value: 62431 }),
-      expect.objectContaining({ value: 44952 }),
+      expect.objectContaining({ value: { id: 62431, name: null } }),
+      expect.objectContaining({ value: { id: 44952, name: null } }),
     ]));
-    expect(result.title.params?.['target']).toBe('2026-10-17T20:00 · #62431');
+    expect(result.title.params?.['target']).toBe('#62431');
   });
 
   it('limits location approval to one person for one hour', async () => {

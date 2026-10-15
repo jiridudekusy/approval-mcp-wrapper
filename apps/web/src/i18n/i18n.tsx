@@ -7,6 +7,7 @@ import {
 } from 'react';
 
 import { cs } from './cs.js';
+import { formatDateTime } from './date-time.js';
 import { en, type MessageKey } from './en.js';
 
 export type Locale = 'cs' | 'en';
@@ -53,11 +54,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
         updateLocale(next);
       },
       t: (key) => translate(locale, key),
-      formatDate: (input) =>
-        new Intl.DateTimeFormat(locale, {
-          dateStyle: 'medium',
-          timeStyle: 'short',
-        }).format(typeof input === 'string' ? new Date(input) : input),
+      formatDate: (input) => formatDateTime(input, locale),
       formatNumber: (input) => new Intl.NumberFormat(locale).format(input),
     }),
     [locale],

@@ -26,7 +26,7 @@ export function ApprovalDetail({
   onClosed(): void;
   onDecided?(): void;
 }) {
-  const { locale, t } = useI18n();
+  const { locale, t, formatDate } = useI18n();
   const [busy, setBusy] = useState(false);
   const [permanent, setPermanent] = useState(false);
   const [predicate, setPredicate] = useState<Predicate>({
@@ -111,7 +111,7 @@ export function ApprovalDetail({
       <dl className="approval-meta">
         <div><dt>{t('approval.agent')}</dt><dd>{approval.agentName ?? t('common.unknownAgent')}</dd></div>
         <div><dt>{t('approval.upstream')}</dt><dd>{approval.upstreamName ?? t('common.unknownUpstream')}</dd></div>
-        <div><dt>{t('approval.received')}</dt><dd>{new Date(approval.createdAt).toLocaleString()}</dd></div>
+        <div><dt>{t('approval.received')}</dt><dd>{formatDate(approval.createdAt)}</dd></div>
       </dl>
       {approval.presentation === undefined ? <><h3>{t('approval.arguments')}</h3><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></> : <CallPresentation presentation={approval.presentation} />}
       {hasPluginPresentation && approval.presentation !== undefined && approval.presentation.proposedScopes.length > 0 ? (

@@ -128,6 +128,61 @@ describe('PushNotificationService', () => {
     await state.close();
   });
 
+  it('sends a harmless test notification to only the selected device', async () => {
+    const deliveries: Parameters<PushSender['sendNotification']>[] = [];
+    const { service, state } = await fixture({
+      sendNotification: async (...input) => { deliveries.push(input); return {}; },
+    });
+    const mac = await service.registerDevice({
+      name: 'Mac', locale: 'cs-CZ', platform: 'MacIntel', subscription,
+    });
+    await service.registerDevice({
+      name: 'Phone', locale: 'en', platform: 'iPhone',
+      subscription: { ...subscription, endpoint: 'https://web.push.apple.com/other-device' },
+    });
+
+    await expect(service.testDevice(mac.id)).resolves.toBe('accepted');
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]?.[0].endpoint).toBe(subscription.endpoint);
+    expect(JSON.parse(deliveries[0]?.[1] ?? '{}')).toMatchObject({
+      title: 'Approval MCP · Test', url: '/system',
+    });
+    expect(deliveries[0]?.[1]).not.toContain('approvalId');
+    expect(deliveries[0]?.[2]).toMatchObject({ TTL: 60, urgency: 'high' });
+    expect(service.listDevices().find((device) => device.id === mac.id)).toMatchObject({
+      lastDeliveredAt: now.toISOString(),
+    });
+    await state.close();
+  });
+
+  it('reports an expired test subscription and removes only that device', async () => {
+    const { service, state } = await fixture({
+      sendNotification: async () => { throw { statusCode: 410 }; },
+    });
+    const mac = await service.registerDevice({
+      name: 'Mac', locale: 'en', platform: 'MacIntel', subscription,
+    });
+    await expect(service.testDevice(mac.id)).resolves.toBe('expired');
+    expect(service.listDevices()).toEqual([]);
+    await expect(service.testDevice(mac.id)).resolves.toBeUndefined();
+    await state.close();
+  });
+
+  it('reports a failed test without deleting a temporarily unavailable device', async () => {
+    const { service, state } = await fixture({
+      sendNotification: async () => { throw { statusCode: 503 }; },
+    });
+    const mac = await service.registerDevice({
+      name: 'Mac', locale: 'en', platform: 'MacIntel', subscription,
+    });
+    await expect(service.testDevice(mac.id)).resolves.toBe('failed');
+    expect(service.listDevices()).toEqual([
+      expect.objectContaining({ id: mac.id, lastFailureReason: 'push.http_503' }),
+    ]);
+    await state.close();
+  });
+
   it('removes a subscription when its push provider reports it as gone', async () => {
     const { service, state } = await fixture({
       sendNotification: async () => {

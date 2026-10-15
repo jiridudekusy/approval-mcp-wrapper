@@ -25,6 +25,7 @@ describe('push administration routes', () => {
       listDevices: () => [device],
       registerDevice: vi.fn(async () => device),
       removeDevice: vi.fn(async () => true),
+      testDevice: vi.fn(async () => 'accepted'),
     };
     const app = Fastify();
     await registerPushRoutes(app, { sessions, push });
@@ -54,6 +55,31 @@ describe('push administration routes', () => {
       headers: { cookie },
       payload: {},
     })).statusCode).toBe(403);
+
+    expect((await app.inject({
+      method: 'POST',
+      url: `/api/admin/push/devices/${device.id}/test`,
+      headers: { cookie },
+    })).statusCode).toBe(403);
+    expect(push.testDevice).not.toHaveBeenCalled();
+
+    const tested = await app.inject({
+      method: 'POST',
+      url: `/api/admin/push/devices/${device.id}/test`,
+      headers: { cookie, 'x-csrf-token': session.csrfToken },
+    });
+    expect(tested.statusCode).toBe(200);
+    expect(tested.json()).toEqual({ status: 'accepted' });
+    expect(tested.headers['cache-control']).toBe('no-store');
+    expect(push.testDevice).toHaveBeenCalledWith(device.id);
+
+    vi.mocked(push.testDevice).mockResolvedValueOnce(undefined);
+    const missing = await app.inject({
+      method: 'POST',
+      url: `/api/admin/push/devices/${device.id}/test`,
+      headers: { cookie, 'x-csrf-token': session.csrfToken },
+    });
+    expect(missing.statusCode).toBe(404);
 
     const removed = await app.inject({
       method: 'DELETE',

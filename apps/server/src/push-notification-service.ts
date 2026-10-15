@@ -87,6 +87,8 @@ export interface PushDeviceView {
   lastFailureReason?: string;
 }
 
+export type PushDeliveryResult = 'accepted' | 'expired' | 'failed';
+
 export interface PushSender {
   sendNotification(
     subscription: webPush.PushSubscription,
@@ -194,6 +196,12 @@ function notificationBody(locale: string): string {
   return locale.toLowerCase().startsWith('cs')
     ? 'Nový požadavek čeká na schválení.'
     : 'A new request is waiting for approval.';
+}
+
+function testNotificationBody(locale: string): string {
+  return locale.toLowerCase().startsWith('cs')
+    ? 'Testovací notifikace dorazila. Schvalování nejsou nijak ovlivněna.'
+    : 'Test notification received. No approval was affected.';
 }
 
 function toView(record: PushDeviceRecord): PushDeviceView {
@@ -341,6 +349,19 @@ export class PushNotificationService {
     return true;
   }
 
+  async testDevice(id: string): Promise<PushDeliveryResult | undefined> {
+    const value = this.#state.read((state) => state.pushDevices[id]);
+    if (value === undefined) return undefined;
+    const device = pushDeviceRecordSchema.parse(value);
+    const testId = randomUUID();
+    return this.#deliver(device, JSON.stringify({
+      title: 'Approval MCP · Test',
+      body: testNotificationBody(device.locale),
+      tag: `push-test:${testId}`,
+      url: '/system',
+    }), 60, testId);
+  }
+
   async notifyPending(approval: Approval): Promise<void> {
     if (approval.status !== 'pending') return;
     const record = this.#state.read(
@@ -364,14 +385,26 @@ export class PushNotificationService {
         pushDeviceRecordSchema.parse(value),
       ),
     );
-    await Promise.all(devices.map((device) => this.#deliver(device, approval, ttl)));
+    await Promise.all(devices.map((device) => this.#deliver(
+      device,
+      JSON.stringify({
+        title: 'Approval MCP',
+        body: notificationBody(device.locale),
+        tag: `approval:${approval.id}`,
+        url: `/approvals/${encodeURIComponent(approval.id)}`,
+        approvalId: approval.id,
+      }),
+      ttl,
+      approval.id,
+    )));
   }
 
   async #deliver(
     device: PushDeviceRecord,
-    approval: Approval,
+    payload: string,
     ttl: number,
-  ): Promise<void> {
+    topicId: string,
+  ): Promise<PushDeliveryResult> {
     const attemptedAt = this.#now().toISOString();
     try {
       const subscription = browserPushSubscriptionSchema.parse(
@@ -387,18 +420,11 @@ export class PushNotificationService {
           ? {}
           : { expirationTime: subscription.expirationTime }),
       };
-      const payload = JSON.stringify({
-        title: 'Approval MCP',
-        body: notificationBody(device.locale),
-        tag: `approval:${approval.id}`,
-        url: `/approvals/${encodeURIComponent(approval.id)}`,
-        approvalId: approval.id,
-      });
       await this.#sender.sendNotification(providerSubscription, payload, {
         TTL: ttl,
         timeout: 10_000,
         urgency: 'high',
-        topic: createHash('sha256').update(approval.id).digest('base64url').slice(0, 32),
+        topic: createHash('sha256').update(topicId).digest('base64url').slice(0, 32),
         vapidDetails: {
           subject: this.#vapidSubject,
           publicKey: this.publicKey,
@@ -419,11 +445,12 @@ export class PushNotificationService {
           lastDeliveredAt: attemptedAt,
         };
       });
+      return 'accepted';
     } catch (error) {
       const status = deliveryStatus(error);
       if (status === 404 || status === 410) {
         await this.#removeIfCurrent(device);
-        return;
+        return 'expired';
       }
       await this.#updateIfCurrent(device, (current) => ({
         ...current,
@@ -434,6 +461,7 @@ export class PushNotificationService {
         lastFailureReason:
           status === undefined ? 'push.delivery_failed' : `push.http_${status}`,
       }));
+      return 'failed';
     }
   }
 

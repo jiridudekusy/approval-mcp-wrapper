@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import type {
+  PushDeliveryResult,
   PushDeviceInput,
   PushDeviceView,
 } from '../push-notification-service.js';
@@ -14,6 +15,7 @@ export interface PushAdminService {
   listDevices(): readonly PushDeviceView[];
   registerDevice(input: PushDeviceInput): Promise<PushDeviceView>;
   removeDevice(id: string): Promise<boolean>;
+  testDevice(id: string): Promise<PushDeliveryResult | undefined>;
 }
 
 export async function registerPushRoutes(
@@ -106,5 +108,25 @@ export async function registerPushRoutes(
     }
     reply.code(204);
     return undefined;
+  });
+
+  app.post('/api/admin/push/devices/:id/test', async (request, reply) => {
+    if (!await authorizeAdmin(request, reply, options.sessions, true)) return;
+    if (options.push === undefined) {
+      reply.code(503);
+      return { error: { code: 'push.unavailable', message: 'Web Push service is unavailable', requestId: request.id } };
+    }
+    const id = z.string().uuid().safeParse((request.params as { id?: unknown }).id);
+    if (!id.success) {
+      reply.code(400);
+      return { error: { code: 'input.invalid', message: 'Invalid device identifier', requestId: request.id } };
+    }
+    const result = await options.push.testDevice(id.data);
+    if (result === undefined) {
+      reply.code(404);
+      return { error: { code: 'push.device_not_found', message: 'Push device not found', requestId: request.id } };
+    }
+    reply.header('cache-control', 'no-store');
+    return { status: result };
   });
 }

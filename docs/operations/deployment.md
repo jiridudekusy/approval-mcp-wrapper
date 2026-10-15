@@ -29,9 +29,13 @@ Web Push VAPID keys are generated once and persisted under `/data`; the private
 key and every browser subscription are encrypted with the master key. A
 production deployment must use its public HTTPS URL for notifications. On
 iPhone and iPad, install the site to the Home Screen before enabling
-notifications. Registered devices can be reviewed and removed on the System
-page. Push payloads contain a generic alert, the approval ID, and an internal
-deep link; tool arguments and plugin presentation data remain on the server.
+notifications. Registered devices can be reviewed, tested individually, and
+removed on the System page. A test sends a harmless notification linking to
+System, without creating or deciding an approval. A successful test response
+means the push provider accepted the message, not that the operating system
+displayed it. Approval push payloads contain a generic alert, the approval ID,
+and an internal deep link; tool arguments and plugin presentation data remain
+on the server.
 
 The image runs as the unprivileged `node` user. Use a read-only root filesystem
 with `/data` as its writable volume. Probe `/health/live` for liveness and

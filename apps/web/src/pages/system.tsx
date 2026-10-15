@@ -33,7 +33,8 @@ interface PushConfig {
   devices: PushDevice[];
 }
 
-type Feedback = 'denied' | 'enabled' | 'error' | 'removed' | undefined;
+type Feedback = 'denied' | 'enabled' | 'error' | 'removed' |
+  'testAccepted' | 'testExpired' | 'testFailed' | undefined;
 
 export function System({ csrfToken }: { csrfToken: string }) {
   const { t, locale, formatDate, formatNumber } = useI18n();
@@ -48,6 +49,8 @@ export function System({ csrfToken }: { csrfToken: string }) {
   const [busy, setBusy] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string>();
   const [feedback, setFeedback] = useState<Feedback>();
+  const [feedbackDevice, setFeedbackDevice] = useState<string>();
+  const [testingId, setTestingId] = useState<string>();
   const capability = useMemo(pushCapability, []);
 
   const loadPush = useCallback(async () => {
@@ -90,6 +93,7 @@ export function System({ csrfToken }: { csrfToken: string }) {
     ) return;
     setBusy(true);
     setFeedback(undefined);
+    setFeedbackDevice(undefined);
     try {
       const permission = Notification.permission === 'granted'
         ? 'granted'
@@ -120,6 +124,7 @@ export function System({ csrfToken }: { csrfToken: string }) {
   async function removeDevice(device: PushDevice): Promise<void> {
     setBusy(true);
     setFeedback(undefined);
+    setFeedbackDevice(undefined);
     try {
       await api<void>(`/api/admin/push/devices/${encodeURIComponent(device.id)}`, {
         method: 'DELETE',
@@ -133,6 +138,28 @@ export function System({ csrfToken }: { csrfToken: string }) {
     } catch {
       setFeedback('error');
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testDevice(device: PushDevice): Promise<void> {
+    setBusy(true);
+    setTestingId(device.id);
+    setFeedback(undefined);
+    setFeedbackDevice(device.name);
+    try {
+      const result = await api<{ status: 'accepted' | 'expired' | 'failed' }>(
+        `/api/admin/push/devices/${encodeURIComponent(device.id)}/test`,
+        { method: 'POST' },
+        csrfToken,
+      );
+      setFeedback(result.status === 'accepted' ? 'testAccepted'
+        : result.status === 'expired' ? 'testExpired' : 'testFailed');
+    } catch {
+      setFeedback('testFailed');
+    } finally {
+      void loadPush().catch(() => undefined);
+      setTestingId(undefined);
       setBusy(false);
     }
   }
@@ -162,7 +189,7 @@ export function System({ csrfToken }: { csrfToken: string }) {
           </button>
         </div>
         <p className="push-hint">{capabilityMessage ?? t('push.registrationHint')}</p>
-        {feedback !== undefined && <p className={`push-feedback ${feedback === 'error' || feedback === 'denied' ? 'error' : 'success'}`} role="status">{t(`push.feedback.${feedback}`)}</p>}
+        {feedback !== undefined && <p className={`push-feedback ${feedback === 'error' || feedback === 'denied' || feedback === 'testFailed' || feedback === 'testExpired' ? 'error' : 'success'}`} role="status">{feedbackDevice === undefined ? '' : `${feedbackDevice}: `}{t(`push.feedback.${feedback}`)}</p>}
 
         <div className="push-device-heading"><div><h3>{t('push.devices')}</h3><p>{t('push.devicesHint')}</p></div><span>{formatNumber(push?.devices.length ?? 0)}</span></div>
         {push?.devices.length === 0 ? (
@@ -190,7 +217,10 @@ export function System({ csrfToken }: { csrfToken: string }) {
                     <button className="danger-button compact" type="button" disabled={busy} onClick={() => void removeDevice(device)}>{t('push.remove')}</button>
                   </div>
                 ) : (
-                  <button className="danger-link compact" type="button" disabled={busy} onClick={() => setConfirmingId(device.id)}>{t('push.remove')}</button>
+                  <div className="push-device-actions">
+                    <button className="secondary-button compact" type="button" disabled={busy} onClick={() => void testDevice(device)}>{testingId === device.id ? t('push.testing') : t('push.test')}</button>
+                    <button className="danger-link compact" type="button" disabled={busy} onClick={() => setConfirmingId(device.id)}>{t('push.remove')}</button>
+                  </div>
                 )}
               </article>
             ))}

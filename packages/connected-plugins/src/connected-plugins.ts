@@ -472,13 +472,26 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
     const fields: ApprovalField[] = orderedKeys.flatMap((key) => {
       const value = args[key];
       if (value === undefined) return [];
+      const wellnessField = this.id === 'krkonoskewellness' &&
+        (input.toolName === 'book' || input.toolName === 'availability');
+      const label = wellnessField && key === 'service_id'
+        ? { en: 'Service', cs: 'Služba' }
+        : wellnessField && key === 'therapist_id'
+          ? { en: 'Therapist', cs: 'Masérka' }
+          : this.id === 'krkonoskewellness' && input.toolName === 'book' && key === 'start'
+            ? { en: 'Appointment', cs: 'Termín' }
+          : wellnessField && key === 'confirm'
+            ? { en: 'Booking', cs: 'Rezervace' }
+            : labels[key] ?? { en: key, cs: key };
       return [{
-        label: message(`${this.id}.field.${key}`, labels[key] ?? { en: key, cs: key }),
+        label: message(`${this.id}.field.${key}`, label),
         value: key === chatKey && chat !== undefined
           ? contactValue(chat)
           : key === contactKey && contact !== undefined ? contactValue(contact)
-            : key === 'service_id' && serviceName !== undefined ? { id: structuredClone(value), name: serviceName }
-              : key === 'therapist_id' && therapistName !== undefined ? { id: structuredClone(value), name: therapistName }
+            : wellnessField && key === 'service_id' && (typeof value === 'number' || typeof value === 'string')
+              ? { id: value, name: serviceName ?? null }
+              : wellnessField && key === 'therapist_id' && (typeof value === 'number' || typeof value === 'string')
+                ? { id: value, name: therapistName ?? null }
                 : structuredClone(value),
       }];
     });
@@ -499,14 +512,10 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
       ? chat
       : contact?.name !== null && contact?.name !== undefined ? contact : undefined;
     const bookingTarget = this.id === 'krkonoskewellness' && input.toolName === 'book'
-      ? [
-          serviceName === undefined ? undefined : `${serviceName} (#${args['service_id']})`,
-          typeof args['start'] === 'string' ? args['start'] : undefined,
-          serviceName === undefined && typeof args['service_id'] === 'number' ? `#${args['service_id']}` : undefined,
-        ].filter((value): value is string => value !== undefined).join(' · ')
+      ? serviceName ?? (targetValue(args['service_id']) === undefined ? undefined : `#${args['service_id']}`)
       : undefined;
     const target = namedTarget === undefined
-      ? bookingTarget || rawTarget
+      ? bookingTarget || (this.id === 'krkonoskewellness' && input.toolName === 'availability' ? serviceName : undefined) || rawTarget
       : `${namedTarget.name} (${namedTarget.id})`.slice(0, 200);
     const risk = this.id === 'krkonoskewellness' && input.toolName === 'book' && args['confirm'] !== true
       ? 'info'
@@ -538,11 +547,15 @@ export class ConnectedApprovalPlugin implements ApprovalPlugin {
       sensitivePaths: [],
       title: message(`${this.id}.tool.${input.toolName}`, {
         en: bookingPreview
-          ? target === undefined ? 'Preview wellness booking' : 'Preview wellness booking: {target}'
-          : target === undefined ? definition.en : `${definition.en}: {target}`,
+          ? target === undefined ? 'Preview booking' : 'Preview booking: {target}'
+          : this.id === 'krkonoskewellness' && input.toolName === 'book'
+            ? target === undefined ? 'Wellness booking' : 'Wellness booking: {target}'
+            : target === undefined ? definition.en : `${definition.en}: {target}`,
         cs: bookingPreview
-          ? target === undefined ? 'Zobrazit návrh wellness rezervace' : 'Zobrazit návrh wellness rezervace: {target}'
-          : target === undefined ? definition.cs : `${definition.cs}: {target}`,
+          ? target === undefined ? 'Návrh rezervace' : 'Návrh rezervace: {target}'
+          : this.id === 'krkonoskewellness' && input.toolName === 'book'
+            ? target === undefined ? 'Rezervace wellness služby' : 'Rezervace: {target}'
+            : target === undefined ? definition.cs : `${definition.cs}: {target}`,
       }, target === undefined ? undefined : { target }),
       sections,
       proposedScopes: scopeKey === undefined || scopeValue === undefined

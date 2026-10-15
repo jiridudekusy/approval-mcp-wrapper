@@ -729,7 +729,7 @@ pre,
 
 .approval-detail h2 {
   overflow-wrap: anywhere;
-  font: 600 20px 'Roboto Mono', monospace;
+  font: 650 22px/1.3 Roboto, Arial, sans-serif;
 }
 
 .approval-detail h3 {
@@ -771,6 +771,13 @@ pre,
 
 .plugin-section.danger {
   border-left-color: var(--negative);
+}
+
+.plugin-section.technical summary {
+  color: var(--muted-strong);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .plugin-section header {
@@ -835,6 +842,13 @@ pre,
 .entity-value code {
   color: var(--muted);
   font-size: 11px;
+}
+
+.entity-value.numeric {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .entity-list {
@@ -2854,6 +2868,13 @@ pre,
   color: var(--negative);
 }
 
+.push-device-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .push-remove-confirm {
   display: flex;
   align-items: center;
@@ -3342,13 +3363,13 @@ pre,
     grid-template-columns: 38px minmax(0, 1fr);
   }
 
-  .push-device-list article > .danger-link,
+  .push-device-actions,
   .push-remove-confirm {
     grid-column: 1 / -1;
   }
 
-  .push-device-list article > .danger-link {
-    justify-self: start;
+  .push-device-actions {
+    justify-content: flex-start;
   }
 
   .push-remove-confirm {
