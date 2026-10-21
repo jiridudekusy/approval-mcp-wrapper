@@ -8,6 +8,7 @@ import { loadConfig } from './config.js';
 import { PasskeyService } from './passkey-service.js';
 import { RecoveryService } from './recovery-service.js';
 import { SessionService } from './session-store.js';
+import { OAuthService } from './oauth-service.js';
 import { createConfigStateStore } from '@approval-mcp/state-store';
 import { createCallJournal } from '@approval-mcp/call-journal';
 import {
@@ -83,6 +84,7 @@ const journal = await createCallJournal(
   }),
 );
 const sessions = new SessionService(new StateSessionRepository(stateStore));
+const oauth = new OAuthService(stateStore, config.expectedOrigin);
 const credentialVault = new CredentialVault(config.masterKey);
 const pushNotifications = await PushNotificationService.create({
   state: stateStore,
@@ -285,8 +287,10 @@ const coordinator = new PolicyCallCoordinator({
     const token = state.clientTokens[clientTokenId] as {
       revokedAt?: string;
       deletedAt?: string;
+      expiresAt?: string;
     } | undefined;
-    return token !== undefined && token.revokedAt === undefined && token.deletedAt === undefined;
+    return token !== undefined && token.revokedAt === undefined && token.deletedAt === undefined &&
+      (token.expiresAt === undefined || token.expiresAt > new Date().toISOString());
   }),
   policies: (input) =>
     [...policiesFor(input.clientTokenId, input.upstreamId, input.toolName),
@@ -484,8 +488,9 @@ const mcpGateway = new TokenScopedGateway({
 });
 const mcpHandler = createMcpHttpHandler({
   allowedOrigins: [config.expectedOrigin],
+  resourceMetadataUrl: `${config.expectedOrigin}/.well-known/oauth-protected-resource/mcp`,
   authenticate: async (plaintext) =>
-    (await tokens.authenticate(plaintext))?.id,
+    oauth.authenticate(plaintext) ?? (await tokens.authenticate(plaintext))?.id,
   gateway: mcpGateway,
 });
 const onCatalogChanged = () => mcpHandler.notifyToolsChanged();
@@ -500,6 +505,7 @@ const catalogRefreshTimer = setInterval(() => {
 }, 30_000);
 catalogRefreshTimer.unref();
 const app = await buildServerApp({
+  oauth,
   readiness: () =>
     readiness(config.dataDir, {
       stateLoaded: true,

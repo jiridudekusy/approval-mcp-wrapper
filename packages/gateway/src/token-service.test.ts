@@ -109,4 +109,14 @@ describe('TokenService', () => {
     await expect(service.authenticate(created.plaintext)).resolves.toBeUndefined();
     await expect(service.authenticate(rotated.plaintext)).resolves.toMatchObject({ id: created.record.id });
   });
+
+  it('does not turn a time-limited OAuth agent into a permanent manual or management token', async () => {
+    const repository = new InMemoryTokenRepository();
+    const service = new TokenService(repository);
+    const created = await service.create('OAuth placeholder');
+    await repository.save({ ...created.record, authKind: 'oauth', expiresAt: '2026-10-21T13:00:00.000Z' });
+    await expect(service.authenticate(created.plaintext)).resolves.toBeUndefined();
+    await expect(service.rotate(created.record.id)).rejects.toThrow();
+    await expect(service.update(created.record.id, { canManageApprovalMcp: true })).rejects.toThrow();
+  });
 });

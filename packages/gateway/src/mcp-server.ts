@@ -37,7 +37,7 @@ export function validateOrigin(
   origin: string | undefined,
   allowedOrigins: readonly string[],
 ): void {
-  if (origin === undefined || !allowedOrigins.includes(origin)) {
+  if (origin !== undefined && !allowedOrigins.includes(origin)) {
     throw new GatewayError('invalid_origin', 'Origin is not allowed');
   }
 }
@@ -123,6 +123,7 @@ export class TokenScopedGateway {
 
 export interface McpHttpHandlerOptions {
   allowedOrigins: readonly string[];
+  resourceMetadataUrl?: string;
   authenticate(bearerToken: string): Promise<ClientTokenId | undefined>;
   gateway: TokenScopedGateway;
 }
@@ -220,15 +221,15 @@ export function createMcpHttpHandler(
     try {
       validateOrigin(singleHeader(request.headers.origin), options.allowedOrigins);
       const plaintext = bearerToken(request.headers.authorization);
-      if (plaintext === undefined) {
+      const unauthorized = () => {
+        if (options.resourceMetadataUrl !== undefined) {
+          response.setHeader('WWW-Authenticate', `Bearer resource_metadata="${options.resourceMetadataUrl}", scope="mcp:access"`);
+        }
         response.writeHead(401).end();
-        return;
-      }
+      };
+      if (plaintext === undefined) { unauthorized(); return; }
       const tokenId = await options.authenticate(plaintext);
-      if (tokenId === undefined) {
-        response.writeHead(401).end();
-        return;
-      }
+      if (tokenId === undefined) { unauthorized(); return; }
       const authenticatedRequest = request as IncomingMessage & {
         method: string;
         url: string;

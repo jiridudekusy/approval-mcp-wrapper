@@ -1,9 +1,8 @@
 export type Page = 'access' | 'history' | 'inbox' | 'system' | 'upstreams';
 
-export interface AppRoute {
-  page: Page;
-  approvalId?: string;
-}
+export type AppRoute =
+  | { page: Page; approvalId?: string }
+  | { page: 'oauth'; oauthRequestId: string };
 
 export const pagePaths: Record<Page, string> = {
   inbox: '/approvals',
@@ -31,6 +30,11 @@ export function routeFromLocation(
   location: Pick<Location, 'pathname' | 'search'>,
 ): AppRoute {
   const pathname = normalizedPathname(location.pathname);
+  const oauthMatch = /^\/oauth\/consent\/([^/]+)$/.exec(pathname);
+  if (oauthMatch?.[1] !== undefined) {
+    const oauthRequestId = decodedApprovalId(oauthMatch[1]);
+    if (oauthRequestId !== undefined) return { page: 'oauth', oauthRequestId };
+  }
   const approvalMatch = /^\/approvals\/([^/]+)$/.exec(pathname);
   const approvalId = approvalMatch?.[1] === undefined
     ? undefined
@@ -55,6 +59,7 @@ export function routeFromLocation(
 }
 
 export function routePath(route: AppRoute): string {
+  if (route.page === 'oauth') return `/oauth/consent/${encodeURIComponent(route.oauthRequestId)}`;
   if (route.page === 'inbox' && route.approvalId !== undefined) {
     return `${pagePaths.inbox}/${encodeURIComponent(route.approvalId)}`;
   }

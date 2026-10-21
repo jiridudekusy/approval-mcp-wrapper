@@ -24,6 +24,11 @@ put it in an image, Compose file, Git repository, or backup manifest.
 Map persistent storage to `/data`, publish port 3000 only to the reverse proxy,
 and forward the original host and scheme. The public URL fixes the WebAuthn RP
 ID and origin; changing its hostname requires registering a new passkey.
+It also fixes the OAuth issuer and MCP resource URI. Keep it stable when clients
+are signed in: changing it requires a new authorization. The reverse proxy must
+expose `/mcp`, `/.well-known/oauth-protected-resource/mcp`,
+`/.well-known/oauth-authorization-server`, `/oauth/*`, and `/api/oauth/*` on
+the same public origin. Do not cache token or consent responses.
 
 Web Push VAPID keys are generated once and persisted under `/data`; the private
 key and every browser subscription are encrypted with the master key. A

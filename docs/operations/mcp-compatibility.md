@@ -6,11 +6,39 @@ stable TypeScript SDK v2:
 - legacy MCP through the 2025-11-25 Streamable HTTP lifecycle;
 - modern MCP 2026-07-28 through `server/discover` and typed modern requests.
 
-The endpoint keeps the same bearer-token authentication, Origin validation,
+The endpoint keeps the same bearer-token authentication, validation of Origin
+when a client supplies that header,
 token-scoped tool catalog, policy checks, approval flow, and audit records in
 both modes. Upstream connections use automatic negotiation: they try the modern
 discovery flow first and fall back to the legacy lifecycle when the upstream is
 not modern-capable.
+
+## Browser-based OAuth sign-in
+
+New clients can connect to the public `https://<your-host>/mcp` URL without a
+manually created agent token. An unauthenticated request receives an OAuth
+protected-resource challenge. The server advertises authorization-server
+metadata and supports dynamic registration of public clients, authorization
+code with S256 PKCE, and rotating refresh tokens. A browser opens the consent
+page; after passkey sign-in, the administrator sees the unverified client name,
+client ID and exact callback URL, chooses one access profile and a lifetime
+between one hour and seven days, and confirms with the passkey again. Denying
+the request returns an OAuth error to the client. There is no Device Flow.
+
+The resulting agent appears in **Access → Agents**, labelled OAuth, with its
+expiry. Delete it there to revoke access immediately. Changing its chosen
+profile requires revocation and another sign-in. OAuth clients cannot receive
+the MCP management permission or a manually rotated token. Existing manually
+created `amcp_` agent tokens continue to work. OAuth changes *how* the client
+obtains a token; MCP HTTP requests still carry a short-lived
+`Authorization: Bearer` access token. Individual tool approvals continue to
+apply to the selected profile.
+
+The callback must be reachable by the browser that completes the sign-in.
+`http://localhost` and other loopback callback URLs refer to that browser's
+machine, which matters if the sandbox runs on another host. HTTPS callbacks
+are also accepted. This implementation supports Dynamic Client Registration;
+clients that only support Client ID Metadata Documents are not yet compatible.
 
 The approval wait remains a normal blocking `tools/call` response. MCP Tasks are
 not advertised. In protocol 2026-07-28, Tasks moved to the experimental

@@ -151,7 +151,7 @@ export class TokenService {
     const record = await this.#repository.findById(match[1] as ClientTokenId);
     const verifier =
       record === undefined ? undefined : parseVerifier(record.hash);
-    if (record === undefined || verifier === undefined) {
+    if (record === undefined || verifier === undefined || record.authKind === 'oauth') {
       await hashToken(plaintext, DUMMY_SALT);
       return undefined;
     }
@@ -160,7 +160,9 @@ export class TokenService {
       Buffer.from(record.salt, 'base64url'),
       verifier,
     );
-    if (record.revokedAt !== undefined || record.deletedAt !== undefined || !timingSafeEqual(actual, verifier.hash)) {
+    if (record.revokedAt !== undefined || record.deletedAt !== undefined ||
+      (record.expiresAt !== undefined && record.expiresAt <= this.#now().toISOString()) ||
+      !timingSafeEqual(actual, verifier.hash)) {
       return undefined;
     }
     // Never write the verifier from an authentication snapshot: doing so could
@@ -170,6 +172,8 @@ export class TokenService {
       current.salt === record.salt &&
       current.revokedAt === undefined &&
       current.deletedAt === undefined
+      && current.authKind !== 'oauth'
+      && (current.expiresAt === undefined || current.expiresAt > this.#now().toISOString())
       ? current
       : undefined;
   }
@@ -184,6 +188,9 @@ export class TokenService {
     }
     const record = await this.#repository.findById(id);
     if (record === undefined || record.deletedAt !== undefined) throw new Error(`Unknown client token: ${id}`);
+    if (record.authKind === 'oauth' && changes.canManageApprovalMcp === true) {
+      throw new Error('OAuth clients cannot manage Approval MCP');
+    }
     const updated = {
       ...record,
       ...(normalizedLabel === undefined ? {} : { label: normalizedLabel }),
@@ -199,7 +206,7 @@ export class TokenService {
 
   async rotate(id: ClientTokenId): Promise<{ record: ClientTokenRecord; plaintext: string }> {
     const record = await this.#repository.findById(id);
-    if (record === undefined || record.deletedAt !== undefined || record.revokedAt !== undefined) {
+    if (record === undefined || record.deletedAt !== undefined || record.revokedAt !== undefined || record.authKind === 'oauth') {
       throw new Error(`Unknown active client token: ${id}`);
     }
     const plaintext = `amcp_${id}_${randomBytes(32).toString('base64url')}`;

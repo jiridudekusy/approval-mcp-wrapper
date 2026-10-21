@@ -24,6 +24,12 @@ describe('application routes', () => {
     expect(routePath(route)).toBe('/approvals/approval%201');
   });
 
+  it('keeps the OAuth consent request in the browser route', () => {
+    const route = routeFromLocation({ pathname: '/oauth/consent/request-1', search: '' });
+    expect(route).toEqual({ page: 'oauth', oauthRequestId: 'request-1' });
+    expect(routePath(route)).toBe('/oauth/consent/request-1');
+  });
+
   it('keeps legacy notification links compatible', () => {
     expect(routeFromLocation({ pathname: '/', search: '?approval=approval-1' }))
       .toEqual({ page: 'inbox', approvalId: 'approval-1' });

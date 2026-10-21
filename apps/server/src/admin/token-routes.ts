@@ -42,6 +42,8 @@ export async function registerTokenRoutes(
           createdAt: record.createdAt,
           updatedAt: record.updatedAt,
           version: record.version,
+          ...(record.authKind === undefined ? {} : { authKind: record.authKind }),
+          ...(record.expiresAt === undefined ? {} : { expiresAt: record.expiresAt }),
           ...(record.revokedAt === undefined
             ? {}
             : { revokedAt: record.revokedAt }),
@@ -156,6 +158,9 @@ export async function registerTokenRoutes(
       if (body.version !== current.version) {
         return reply.code(409).send({ error: { code: 'state.version_conflict', message: 'Agent changed', requestId: request.id } });
       }
+      if (current.authKind === 'oauth' && body.canManageApprovalMcp === true) {
+        return reply.code(400).send({ error: { code: 'token.oauth_manager_forbidden', message: 'OAuth clients cannot manage Approval MCP', requestId: request.id } });
+      }
       if ((body.label === undefined && body.canManageApprovalMcp === undefined) ||
         (body.label !== undefined && (typeof body.label !== 'string' || body.label.trim().length === 0 || body.label.trim().length > 120)) ||
         (body.canManageApprovalMcp !== undefined && typeof body.canManageApprovalMcp !== 'boolean')) {
@@ -181,6 +186,9 @@ export async function registerTokenRoutes(
       }
       if (version !== current.version) {
         return reply.code(409).send({ error: { code: 'state.version_conflict', message: 'Agent changed', requestId: request.id } });
+      }
+      if (current.authKind === 'oauth') {
+        return reply.code(400).send({ error: { code: 'token.oauth_rotation_forbidden', message: 'OAuth clients cannot rotate manual tokens', requestId: request.id } });
       }
       const rotated = await options.tokens.rotate(id as ClientTokenId);
       return { plaintext: rotated.plaintext, version: rotated.record.version };

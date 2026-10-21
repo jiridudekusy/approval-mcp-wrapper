@@ -226,15 +226,13 @@ describe('TokenScopedGateway', () => {
 });
 
 describe('validateOrigin', () => {
-  it('allows configured origins and rejects missing or foreign origins', () => {
+  it('allows absent origins from non-browser clients and rejects foreign origins', () => {
     expect(() =>
       validateOrigin('https://admin.example.test', [
         'https://admin.example.test',
       ]),
     ).not.toThrow();
-    expect(() => validateOrigin(undefined, ['https://admin.example.test'])).toThrow(
-      GatewayError,
-    );
+    expect(() => validateOrigin(undefined, ['https://admin.example.test'])).not.toThrow();
     expect(() =>
       validateOrigin('https://evil.example.test', [
         'https://admin.example.test',
@@ -244,6 +242,31 @@ describe('validateOrigin', () => {
 });
 
 describe('Streamable HTTP MCP integration', () => {
+  it('advertises OAuth metadata to an unauthenticated non-browser client', async () => {
+    const gateway = new TokenScopedGateway({
+      coordinator: { call: vi.fn() },
+      catalogFor: () => [],
+    });
+    const handler = createMcpHttpHandler({
+      allowedOrigins: ['https://approval.example.test'],
+      resourceMetadataUrl: 'https://approval.example.test/.well-known/oauth-protected-resource/mcp',
+      authenticate: async () => undefined,
+      gateway,
+    });
+    const server = createServer((request, response) => { void handler(request, response); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      const response = await fetch(`http://127.0.0.1:${address.port}/mcp`);
+      expect(response.status).toBe(401);
+      expect(response.headers.get('www-authenticate')).toContain('resource_metadata="https://approval.example.test/.well-known/oauth-protected-resource/mcp"');
+    } finally {
+      await handler.close();
+      await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+    }
+  });
+
   it('notifies a subscribed modern client when the tool catalog changes', async () => {
     let currentTools = tools.slice(0, 1);
     const gateway = new TokenScopedGateway({

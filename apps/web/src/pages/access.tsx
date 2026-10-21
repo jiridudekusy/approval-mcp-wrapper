@@ -7,7 +7,7 @@ import { TokenForm } from '../components/token-form.js';
 import { useI18n } from '../i18n/i18n.js';
 import { useDialogLifecycle } from '../hooks/use-dialog-lifecycle.js';
 
-interface TokenView { id: string; label: string; version: number; canManageApprovalMcp?: boolean; revokedAt?: string; profileIds: string[] }
+interface TokenView { id: string; label: string; version: number; canManageApprovalMcp?: boolean; revokedAt?: string; profileIds: string[]; authKind?: 'oauth'; expiresAt?: string }
 interface UpstreamView { id: string; alias: string; displayName?: string }
 const SELF_UPSTREAM = { id: 'approval-mcp-self', alias: 'approval_mcp', displayName: 'Approval MCP' };
 

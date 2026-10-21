@@ -18,6 +18,11 @@ export const CONFIG_COLLECTION_NAMES = [
   'profileRules',
   'tokenProfileAssignments',
   'pushDevices',
+  'oauthClients',
+  'oauthRequests',
+  'oauthCodes',
+  'oauthGrants',
+  'oauthTokens',
 ] as const;
 
 export type ConfigCollectionName = (typeof CONFIG_COLLECTION_NAMES)[number];
@@ -40,6 +45,11 @@ export interface ConfigState {
   profileRules: ConfigCollection;
   tokenProfileAssignments: ConfigCollection;
   pushDevices: ConfigCollection;
+  oauthClients: ConfigCollection;
+  oauthRequests: ConfigCollection;
+  oauthCodes: ConfigCollection;
+  oauthGrants: ConfigCollection;
+  oauthTokens: ConfigCollection;
 }
 
 export type StateOperation =
@@ -81,6 +91,11 @@ export const configStateSchema = z.object({
   profileRules: jsonRecordSchema.default({}),
   tokenProfileAssignments: jsonRecordSchema.default({}),
   pushDevices: jsonRecordSchema.default({}),
+  oauthClients: jsonRecordSchema.default({}),
+  oauthRequests: jsonRecordSchema.default({}),
+  oauthCodes: jsonRecordSchema.default({}),
+  oauthGrants: jsonRecordSchema.default({}),
+  oauthTokens: jsonRecordSchema.default({}),
 });
 
 const stateOperationSchema = z.discriminatedUnion('type', [
@@ -123,6 +138,11 @@ export function createEmptyConfigState(): ConfigState {
     profileRules: {},
     tokenProfileAssignments: {},
     pushDevices: {},
+    oauthClients: {},
+    oauthRequests: {},
+    oauthCodes: {},
+    oauthGrants: {},
+    oauthTokens: {},
   };
 }
 

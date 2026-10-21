@@ -4,9 +4,12 @@ import {
   registerAuthRoutes,
   type AuthRouteOptions,
 } from './auth-routes.js';
+import { registerOAuthRoutes } from './oauth-routes.js';
+import type { OAuthService } from './oauth-service.js';
 
 export async function buildServerApp(options: {
   auth: AuthRouteOptions;
+  oauth?: OAuthService;
   readiness?: () => Promise<unknown>;
 }): Promise<FastifyInstance> {
   const app = Fastify({
@@ -14,6 +17,13 @@ export async function buildServerApp(options: {
     bodyLimit: 1024 * 1024,
   });
   await registerAuthRoutes(app, options.auth);
+  if (options.oauth !== undefined) {
+    await registerOAuthRoutes(app, {
+      oauth: options.oauth,
+      passkeys: options.auth.passkeys,
+      sessions: options.auth.sessions,
+    });
+  }
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ error }, 'Request failed');
     reply.code(500).send({
