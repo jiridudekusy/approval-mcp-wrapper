@@ -70,9 +70,10 @@ it.each([
   expect(consent.json()).toMatchObject({ clientName: 'Test sandbox', profiles: [{ id: profile.id }] });
   const approve = await app.inject({ method: 'POST', url: `/api/oauth/requests/${requestId}/approve`,
     headers: { cookie: cookieHeader, 'x-csrf-token': csrfToken },
-    payload: { profileId: profile.id, lifetimeSeconds: 3600, passkey: {} },
+    payload: { profileId: profile.id, lifetimeSeconds: 3600, label: 'My work sandbox', passkey: {} },
   });
   expect(approve.statusCode).toBe(200);
+  expect(Object.values(state.read((snapshot) => snapshot.clientTokens))[0]).toMatchObject({ label: 'My work sandbox' });
   const callback = new URL(approve.json<{ redirectTo: string }>().redirectTo);
   expect(callback.searchParams.get('state')).toBe('123');
   expect(callback.searchParams.get('iss')).toBe(clientOrigin);

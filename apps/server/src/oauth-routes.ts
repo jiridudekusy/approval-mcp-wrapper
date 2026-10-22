@@ -143,8 +143,9 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
     const session = await authorizeAdmin(request, reply, options.sessions, true);
     if (session === undefined) return;
     const { id } = request.params as { id: string };
-    const body = (request.body ?? {}) as { profileId?: unknown; lifetimeSeconds?: unknown; passkey?: unknown };
+    const body = (request.body ?? {}) as { profileId?: unknown; lifetimeSeconds?: unknown; label?: unknown; passkey?: unknown };
     if (typeof body.profileId !== 'string' || typeof body.lifetimeSeconds !== 'number' ||
+      (body.label !== undefined && typeof body.label !== 'string') ||
       typeof body.passkey !== 'object' || body.passkey === null) {
       return oauthFailure(reply, new OAuthError('invalid_request'));
     }
@@ -152,7 +153,7 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
       oauth.pending(id);
       const verified = await options.passkeys.verifyLogin(body.passkey as AuthenticationResponseJSON);
       if (verified.adminId !== session.adminId) throw new OAuthError('access_denied', 403);
-      const redirectTo = await oauth.approve(id, body.profileId, body.lifetimeSeconds, session.adminId);
+      const redirectTo = await oauth.approve(id, body.profileId, body.lifetimeSeconds, session.adminId, body.label as string | undefined);
       return reply.header('cache-control', 'no-store').send({ redirectTo });
     } catch (error) { return oauthFailure(reply, error); }
   });

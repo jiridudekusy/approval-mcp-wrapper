@@ -99,4 +99,17 @@ describe('OAuth authorization code and PKCE', () => {
     expect(() => oauth.pending(requestId)).toThrow();
     await state.close();
   });
+
+  it('stores an administrator-chosen label and limits the grant to thirty days', async () => {
+    const { state, oauth, profile, requestId } = await fixture();
+    await expect(oauth.approve(requestId, profile.id, 30 * 86400 + 1, 'admin', 'Work sandbox'))
+      .rejects.toMatchObject({ code: 'invalid_grant_lifetime' });
+    await expect(oauth.approve(requestId, profile.id, 3600, 'admin', '  '))
+      .rejects.toMatchObject({ code: 'invalid_agent_label' });
+    await oauth.approve(requestId, profile.id, 30 * 86400, 'admin', '  Work sandbox  ');
+    const agent = Object.values(state.read((snapshot) => snapshot.clientTokens))[0] as { label: string; expiresAt: string };
+    expect(agent.label).toBe('Work sandbox');
+    expect(agent.expiresAt).toBe('2026-11-20T12:00:00.000Z');
+    await state.close();
+  });
 });

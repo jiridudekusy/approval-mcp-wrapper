@@ -6,7 +6,7 @@ import type { ConfigStateStore, StateOperation } from '@approval-mcp/state-store
 const REQUEST_LIFETIME_MS = 10 * 60_000;
 const CODE_LIFETIME_MS = 5 * 60_000;
 const ACCESS_LIFETIME_MS = 15 * 60_000;
-const MAX_GRANT_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
+const MAX_GRANT_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
 interface OAuthClient {
   id: string;
@@ -204,10 +204,13 @@ export class OAuthService {
     });
   }
 
-  async approve(id: string, profileId: string, lifetimeSeconds: number, adminId: string): Promise<string> {
+  async approve(id: string, profileId: string, lifetimeSeconds: number, adminId: string, label?: string): Promise<string> {
     return this.#serialize(async () => {
       if (!Number.isInteger(lifetimeSeconds) || lifetimeSeconds < 300 || lifetimeSeconds > MAX_GRANT_LIFETIME_SECONDS) {
         throw new OAuthError('invalid_grant_lifetime');
+      }
+      if (label !== undefined && (label.trim().length === 0 || label.trim().length > 120)) {
+        throw new OAuthError('invalid_agent_label');
       }
       const now = this.#now();
       const snapshot = this.#state.read((state) => ({
@@ -237,7 +240,7 @@ export class OAuthService {
       };
       const client = this.#state.read((state) => record<OAuthClient>(state.oauthClients[request.clientId]));
       const agent: ClientTokenRecord = {
-        id: clientTokenId, label: client?.name ?? 'OAuth sandbox', authKind: 'oauth',
+        id: clientTokenId, label: label?.trim() ?? client?.name ?? 'OAuth sandbox', authKind: 'oauth',
         hash: '', salt: '', expiresAt: grant.expiresAt,
         schemaVersion: 1, createdAt: now.toISOString(), updatedAt: now.toISOString(), version: 1,
       };

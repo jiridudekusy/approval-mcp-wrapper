@@ -21,8 +21,9 @@ protected-resource challenge. The server advertises authorization-server
 metadata and supports dynamic registration of public clients, authorization
 code with S256 PKCE, and rotating refresh tokens. A browser opens the consent
 page; after passkey sign-in, the administrator sees the unverified client name,
-client ID and exact callback URL, chooses one access profile and a lifetime
-between one hour and seven days, and confirms with the passkey again. Denying
+client ID and exact callback URL, assigns a recognizable agent name, chooses
+one access profile and a lifetime between one hour and thirty days, and
+confirms with the passkey again. Denying
 the request returns an OAuth error to the client. There is no Device Flow.
 
 The resulting agent appears in **Access → Agents**, labelled OAuth, with its
