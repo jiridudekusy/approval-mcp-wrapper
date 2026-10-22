@@ -11,6 +11,7 @@ const MAX_GRANT_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 interface OAuthClient {
   id: string;
   name: string;
+  issuer?: string;
   redirectUris: string[];
   createdAt: string;
 }
@@ -18,6 +19,7 @@ interface OAuthClient {
 interface OAuthRequest {
   id: string;
   clientId: string;
+  issuer?: string;
   redirectUri: string;
   resource: string;
   codeChallenge: string;
@@ -30,6 +32,7 @@ interface OAuthRequest {
 
 interface OAuthCode {
   grantId: string;
+  issuer?: string;
   clientId: string;
   redirectUri: string;
   resource: string;
@@ -41,6 +44,8 @@ interface OAuthGrant {
   id: string;
   clientTokenId: ClientTokenId;
   clientId: string;
+  issuer?: string;
+  resource?: string;
   profileId: ProfileId;
   profileVersion: number;
   createdAt: string;
@@ -99,13 +104,32 @@ export class OAuthService {
   readonly resource: string;
   readonly #state: ConfigStateStore;
   readonly #now: () => Date;
+  readonly #originByHost: ReadonlyMap<string, string>;
   #queue: Promise<void> = Promise.resolve();
 
-  constructor(state: ConfigStateStore, publicOrigin: string, now: () => Date = () => new Date()) {
+  constructor(
+    state: ConfigStateStore,
+    publicOrigin: string,
+    now: () => Date = () => new Date(),
+    origins: readonly string[] = [publicOrigin],
+  ) {
     this.#state = state;
     this.issuer = publicOrigin;
     this.resource = `${publicOrigin}/mcp`;
     this.#now = now;
+    this.#originByHost = new Map(origins.map((origin) => [new URL(origin).host.toLowerCase(), origin]));
+    if (!this.#originByHost.has(new URL(publicOrigin).host.toLowerCase())) {
+      throw new Error('The passkey origin must be an allowed OAuth origin');
+    }
+  }
+
+  originForHost(host: string | undefined): string | undefined {
+    return host === undefined ? undefined : this.#originByHost.get(host.toLowerCase());
+  }
+
+  resourceFor(origin: string): string {
+    if (this.originForHost(new URL(origin).host) !== origin) throw new OAuthError('invalid_resource');
+    return `${origin}/mcp`;
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -114,13 +138,14 @@ export class OAuthService {
     return result;
   }
 
-  async registerClient(name: string, redirectUris: readonly string[]): Promise<OAuthClient> {
+  async registerClient(name: string, redirectUris: readonly string[], issuer = this.issuer): Promise<OAuthClient> {
+    if (this.originForHost(new URL(issuer).host) !== issuer) throw new OAuthError('invalid_client_metadata');
     if (name.trim().length === 0 || name.length > 120 || redirectUris.length < 1 || redirectUris.length > 8 ||
       redirectUris.some((uri) => uri.length > 2048 || !redirectUriAllowed(uri))) {
       throw new OAuthError('invalid_client_metadata');
     }
     const client: OAuthClient = {
-      id: randomUUID(), name: name.trim(), redirectUris: [...new Set(redirectUris)],
+      id: randomUUID(), name: name.trim(), issuer, redirectUris: [...new Set(redirectUris)],
       createdAt: this.#now().toISOString(),
     };
     await this.#state.mutate(upsert('oauthClients', client.id, client));
@@ -139,14 +164,15 @@ export class OAuthService {
   }): Promise<string> {
     const client = this.#state.read((state) => record<OAuthClient>(state.oauthClients[input.clientId]));
     if (client === undefined || !client.redirectUris.includes(input.redirectUri)) throw new OAuthError('invalid_client');
-    if (input.responseType !== 'code' || input.resource !== this.resource ||
+    const issuer = client.issuer ?? this.issuer;
+    if (input.responseType !== 'code' || input.resource !== this.resourceFor(issuer) ||
       input.codeChallengeMethod !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(input.codeChallenge) ||
       (input.scope !== undefined && input.scope !== 'mcp:access') ||
       (input.state !== undefined && input.state.length > 1024)) {
       throw new OAuthError('invalid_request');
     }
     const request: OAuthRequest = {
-      id: randomUUID(), clientId: client.id, redirectUri: input.redirectUri,
+      id: randomUUID(), clientId: client.id, issuer, redirectUri: input.redirectUri,
       resource: input.resource, codeChallenge: input.codeChallenge,
       ...(input.state === undefined ? {} : { state: input.state }),
       expiresAt: new Date(this.#now().getTime() + REQUEST_LIFETIME_MS).toISOString(),
@@ -197,12 +223,13 @@ export class OAuthService {
       const grantId = randomUUID();
       const code = randomBytes(32).toString('base64url');
       const codeRecord: OAuthCode = {
-        grantId, clientId: request.clientId, redirectUri: request.redirectUri,
+        grantId, clientId: request.clientId, issuer: request.issuer ?? this.issuer, redirectUri: request.redirectUri,
         resource: request.resource, codeChallenge: request.codeChallenge,
         expiresAt: new Date(now.getTime() + CODE_LIFETIME_MS).toISOString(),
       };
       const grant: OAuthGrant = {
         id: grantId, clientTokenId, clientId: request.clientId,
+        issuer: request.issuer ?? this.issuer, resource: request.resource,
         profileId: profile.id, profileVersion: profile.version,
         createdAt: now.toISOString(),
         approvedByAdminId: adminId,
@@ -225,7 +252,7 @@ export class OAuthService {
         upsert('oauthCodes', hash(code), codeRecord),
         upsert('oauthRequests', id, { ...request, status: 'approved', decidedByAdminId: adminId, decidedAt: now.toISOString() }),
       ] });
-      return redirectWith(request.redirectUri, { code, state: request.state, iss: this.issuer });
+      return redirectWith(request.redirectUri, { code, state: request.state, iss: request.issuer ?? this.issuer });
     });
   }
 
@@ -238,7 +265,7 @@ export class OAuthService {
       await this.#state.mutate(upsert('oauthRequests', id, {
         ...request, status: 'denied', decidedByAdminId: adminId, decidedAt: this.#now().toISOString(),
       }));
-      return redirectWith(request.redirectUri, { error: 'access_denied', state: request.state, iss: this.issuer });
+      return redirectWith(request.redirectUri, { error: 'access_denied', state: request.state, iss: request.issuer ?? this.issuer });
     });
   }
 
@@ -285,12 +312,13 @@ export class OAuthService {
     };
   }
 
-  async exchangeCode(input: { code: string; clientId: string; redirectUri: string; resource: string; codeVerifier: string }) {
+  async exchangeCode(input: { code: string; clientId: string; redirectUri: string; resource: string; codeVerifier: string; issuer?: string }) {
     return this.#serialize(async () => {
       const key = hash(input.code);
       const code = this.#state.read((state) => record<OAuthCode>(state.oauthCodes[key]));
       if (code === undefined || code.expiresAt <= this.#now().toISOString() || code.clientId !== input.clientId ||
         code.redirectUri !== input.redirectUri || code.resource !== input.resource ||
+        (code.issuer ?? this.issuer) !== (input.issuer ?? this.issuer) ||
         !/^[A-Za-z0-9._~-]{43,128}$/.test(input.codeVerifier)) throw new OAuthError('invalid_grant');
       const challenge = createHash('sha256').update(input.codeVerifier).digest('base64url');
       if (!timingSafeEqual(Buffer.from(challenge), Buffer.from(code.codeChallenge))) throw new OAuthError('invalid_grant');
@@ -300,13 +328,15 @@ export class OAuthService {
     });
   }
 
-  async refresh(input: { refreshToken: string; clientId: string; resource: string }) {
+  async refresh(input: { refreshToken: string; clientId: string; resource: string; issuer?: string }) {
     return this.#serialize(async () => {
       const key = hash(input.refreshToken);
       const token = this.#state.read((state) => record<OAuthToken>(state.oauthTokens[key]));
       if (token === undefined || token.kind !== 'refresh') throw new OAuthError('invalid_grant');
       const grant = this.#activeGrant(token.grantId);
-      if (grant === undefined || grant.clientId !== input.clientId || input.resource !== this.resource ||
+      if (grant === undefined || grant.clientId !== input.clientId ||
+        (grant.issuer ?? this.issuer) !== (input.issuer ?? this.issuer) ||
+        input.resource !== (grant.resource ?? this.resource) ||
         token.expiresAt <= this.#now().toISOString()) throw new OAuthError('invalid_grant');
       if (token.usedAt !== undefined) {
         await this.#state.mutate(upsert('oauthGrants', grant.id, { ...grant, revokedAt: this.#now().toISOString() }));
@@ -316,10 +346,12 @@ export class OAuthService {
     });
   }
 
-  authenticate(accessToken: string): ClientTokenId | undefined {
+  authenticate(accessToken: string, resourceOrigin = this.issuer): ClientTokenId | undefined {
     if (!/^amcpoa_[A-Za-z0-9_-]{43}$/.test(accessToken)) return undefined;
     const token = this.#state.read((state) => record<OAuthToken>(state.oauthTokens[hash(accessToken)]));
     if (token?.kind !== 'access' || token.expiresAt <= this.#now().toISOString()) return undefined;
-    return this.#activeGrant(token.grantId)?.clientTokenId;
+    const grant = this.#activeGrant(token.grantId);
+    return grant !== undefined && (grant.resource ?? this.resource) === `${resourceOrigin}/mcp`
+      ? grant.clientTokenId : undefined;
   }
 }

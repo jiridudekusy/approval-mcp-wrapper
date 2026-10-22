@@ -64,6 +64,10 @@ describe('OAuth authorization code and PKCE', () => {
     const { state, oauth, profile, client, requestId } = await fixture();
     const code = new URL(await oauth.approve(requestId, profile.id, 3600, 'admin')).searchParams.get('code')!;
     const initial = await oauth.exchangeCode({ code, clientId: client.id, redirectUri, resource: `${origin}/mcp`, codeVerifier: verifier });
+    await expect(oauth.refresh({ refreshToken: initial.refresh_token!, clientId: client.id,
+      resource: `${origin}/mcp`, issuer: 'https://other.example.test' }))
+      .rejects.toMatchObject({ code: 'invalid_grant' });
+    expect(oauth.authenticate(initial.access_token, 'https://other.example.test')).toBeUndefined();
     const renewed = await oauth.refresh({ refreshToken: initial.refresh_token!, clientId: client.id, resource: `${origin}/mcp` });
     expect(renewed.refresh_token).not.toBe(initial.refresh_token);
     expect(oauth.authenticate(renewed.access_token)).toBeDefined();

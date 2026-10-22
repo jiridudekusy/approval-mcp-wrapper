@@ -12,11 +12,15 @@ import { OAuthService } from './oauth-service.js';
 import { InMemoryRecoveryRepository, RecoveryService } from './recovery-service.js';
 import { InMemorySessionRepository, SessionService } from './session-store.js';
 
-it('discovers OAuth, asks the admin for passkey consent, and exchanges the code', async () => {
+it.each([
+  'https://approval.example.test',
+  'http://192.168.64.1:43127',
+])('discovers OAuth and completes passkey consent for %s', async (clientOrigin) => {
   const origin = 'https://approval.example.test';
-  const resource = `${origin}/mcp`;
+  const resource = `${clientOrigin}/mcp`;
   const state = await createConfigStateStore(await mkdtemp(join(tmpdir(), 'approval-oauth-routes-')));
-  const oauth = new OAuthService(state, origin);
+  const oauth = new OAuthService(state, origin, () => new Date(), [origin, 'http://192.168.64.1:43127']);
+  const clientHost = new URL(clientOrigin).host;
   const now = new Date().toISOString();
   const profile: Profile = {
     id: 'test-profile' as ProfileId, name: 'Sandbox', isDefault: true,
@@ -38,11 +42,15 @@ it('discovers OAuth, asks the admin for passkey consent, and exchanges the code'
       secureCookies: true,
     },
   });
-  const metadata = await app.inject({ method: 'GET', url: '/.well-known/oauth-protected-resource/mcp' });
-  expect(metadata.json()).toMatchObject({ resource, authorization_servers: [origin] });
+  const metadata = await app.inject({ method: 'GET', url: '/.well-known/oauth-protected-resource/mcp', headers: { host: clientHost } });
+  expect(metadata.json()).toMatchObject({ resource, authorization_servers: [clientOrigin] });
+  const authorizationMetadata = await app.inject({ method: 'GET', url: '/.well-known/oauth-authorization-server', headers: { host: clientHost } });
+  expect(authorizationMetadata.json()).toMatchObject({
+    issuer: clientOrigin, authorization_endpoint: `${origin}/oauth/authorize`, token_endpoint: `${clientOrigin}/oauth/token`,
+  });
   const registration = await app.inject({ method: 'POST', url: '/oauth/register', payload: {
     client_name: 'Test sandbox', redirect_uris: ['http://127.0.0.1:43210/callback'], token_endpoint_auth_method: 'none',
-  } });
+  }, headers: { host: clientHost } });
   expect(registration.statusCode).toBe(201);
   const clientId = registration.json<{ client_id: string }>().client_id;
   const verifier = 'v'.repeat(43);
@@ -50,7 +58,7 @@ it('discovers OAuth, asks the admin for passkey consent, and exchanges the code'
   const authorization = await app.inject({ method: 'GET', url: `/oauth/authorize?${new URLSearchParams({
     client_id: clientId, redirect_uri: 'http://127.0.0.1:43210/callback', resource,
     response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', state: '123',
-  })}` });
+  })}`, headers: { host: new URL(origin).host } });
   expect(authorization.statusCode).toBe(302);
   const consentPath = authorization.headers.location as string;
   expect(consentPath).toMatch(/^\/oauth\/consent\//);
@@ -67,13 +75,25 @@ it('discovers OAuth, asks the admin for passkey consent, and exchanges the code'
   expect(approve.statusCode).toBe(200);
   const callback = new URL(approve.json<{ redirectTo: string }>().redirectTo);
   expect(callback.searchParams.get('state')).toBe('123');
+  expect(callback.searchParams.get('iss')).toBe(clientOrigin);
+  const exchangeBody = new URLSearchParams({ grant_type: 'authorization_code', code: callback.searchParams.get('code')!,
+    client_id: clientId, redirect_uri: 'http://127.0.0.1:43210/callback', code_verifier: verifier, resource }).toString();
+  if (clientOrigin !== origin) {
+    const wrongIssuer = await app.inject({ method: 'POST', url: '/oauth/token',
+      headers: { host: new URL(origin).host, 'content-type': 'application/x-www-form-urlencoded' }, payload: exchangeBody,
+    });
+    expect(wrongIssuer.statusCode).toBe(400);
+  }
   const token = await app.inject({ method: 'POST', url: '/oauth/token',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    payload: new URLSearchParams({ grant_type: 'authorization_code', code: callback.searchParams.get('code')!,
-      client_id: clientId, redirect_uri: 'http://127.0.0.1:43210/callback', code_verifier: verifier, resource }).toString(),
+    headers: { host: clientHost, 'content-type': 'application/x-www-form-urlencoded' },
+    payload: exchangeBody,
   });
   expect(token.statusCode).toBe(200);
-  expect(oauth.authenticate(token.json<{ access_token: string }>().access_token)).toBeDefined();
+  const accessToken = token.json<{ access_token: string }>().access_token;
+  expect(oauth.authenticate(accessToken, clientOrigin)).toBeDefined();
+  expect(oauth.authenticate(accessToken, clientOrigin === origin ? 'http://192.168.64.1:43127' : origin)).toBeUndefined();
+  const foreignMetadata = await app.inject({ method: 'GET', url: '/.well-known/oauth-authorization-server', headers: { host: 'evil.example.test' } });
+  expect(foreignMetadata.statusCode).toBe(421);
   await app.close();
   await state.close();
 });

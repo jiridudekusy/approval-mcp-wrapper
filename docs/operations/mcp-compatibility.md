@@ -39,6 +39,12 @@ The callback must be reachable by the browser that completes the sign-in.
 machine, which matters if the sandbox runs on another host. HTTPS callbacks
 are also accepted. This implementation supports Dynamic Client Registration;
 clients that only support Client ID Metadata Documents are not yet compatible.
+Multiple explicitly configured MCP origins are supported; the authorization
+page remains on the public passkey origin, while discovery, registration,
+tokens, and MCP requests use the client's chosen origin. Access tokens are
+bound to that origin. MCP OAuth clients generally require HTTPS for any
+non-loopback token endpoint, including a private network IP; see the
+[deployment settings](deployment.md) before connecting from a sandbox.
 
 The approval wait remains a normal blocking `tools/call` response. MCP Tasks are
 not advertised. In protocol 2026-07-28, Tasks moved to the experimental

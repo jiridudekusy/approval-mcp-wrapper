@@ -4,6 +4,8 @@ import { z } from 'zod';
 
 const environmentSchema = z.object({
   APPROVAL_MCP_PUBLIC_URL: z.url(),
+  APPROVAL_MCP_OAUTH_ORIGINS: z.string().optional(),
+  APPROVAL_MCP_ALLOW_INSECURE_OAUTH_PRIVATE_HTTP: z.enum(['true', 'false']).optional(),
   APPROVAL_MCP_DATA_DIR: z.string().min(1),
   APPROVAL_MCP_MASTER_KEY: z.string().min(1),
   APPROVAL_MCP_VAPID_SUBJECT: z.string().min(1).optional(),
@@ -15,6 +17,7 @@ export interface ServerConfig {
   masterKey: Buffer;
   rpId: string;
   expectedOrigin: string;
+  oauthOrigins: readonly string[];
   secureCookies: boolean;
   vapidSubject: string;
 }
@@ -37,6 +40,26 @@ function assertVapidSubject(value: string): void {
   );
 }
 
+function isPrivateIpv4(hostname: string): boolean {
+  const parts = hostname.split('.');
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
+  const first = Number(parts[0]);
+  const second = Number(parts[1]);
+  return first === 10 || (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168);
+}
+
+function oauthOrigin(value: string, allowPrivateHttp: boolean): string {
+  const url = new URL(value);
+  const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+  if (url.username || url.password || url.pathname !== '/' || url.search || url.hash ||
+    !(url.protocol === 'https:' || (url.protocol === 'http:' &&
+      (loopback || (allowPrivateHttp && isPrivateIpv4(url.hostname)))))) {
+    throw new Error('OAuth origins must be clean HTTPS origins or explicitly allowed local HTTP origins');
+  }
+  return url.origin;
+}
+
 export function loadConfig(
   environment: Record<string, string | undefined> = process.env,
 ): ServerConfig {
@@ -52,6 +75,7 @@ export function loadConfig(
   if (
     publicUrl.username !== '' ||
     publicUrl.password !== '' ||
+    publicUrl.pathname !== '/' ||
     publicUrl.search !== '' ||
     publicUrl.hash !== ''
   ) {
@@ -75,12 +99,22 @@ export function loadConfig(
       ? publicUrl.origin
       : 'mailto:approval-mcp@example.com');
   assertVapidSubject(vapidSubject);
+  const oauthOrigins = [...new Set([
+    publicUrl.origin,
+    ...(value.APPROVAL_MCP_OAUTH_ORIGINS?.split(',').map((origin) => origin.trim()) ?? []),
+  ].map((origin) => oauthOrigin(origin, value.APPROVAL_MCP_ALLOW_INSECURE_OAUTH_PRIVATE_HTTP === 'true')))];
+  if (oauthOrigins.length > 16) throw new Error('APPROVAL_MCP_OAUTH_ORIGINS supports at most 16 origins');
+  const hosts = oauthOrigins.map((origin) => new URL(origin).host);
+  if (new Set(hosts).size !== hosts.length) {
+    throw new Error('OAuth origins must use distinct host and port combinations');
+  }
   return {
     publicUrl,
     dataDir: value.APPROVAL_MCP_DATA_DIR,
     masterKey,
     rpId: publicUrl.hostname,
     expectedOrigin: publicUrl.origin,
+    oauthOrigins,
     secureCookies: publicUrl.protocol === 'https:',
     vapidSubject,
   };

@@ -8,7 +8,7 @@ import type {
   UpstreamId,
 } from '@approval-mcp/contracts';
 import { describe, expect, it, vi } from 'vitest';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -261,6 +261,46 @@ describe('Streamable HTTP MCP integration', () => {
       const response = await fetch(`http://127.0.0.1:${address.port}/mcp`);
       expect(response.status).toBe(401);
       expect(response.headers.get('www-authenticate')).toContain('resource_metadata="https://approval.example.test/.well-known/oauth-protected-resource/mcp"');
+    } finally {
+      await handler.close();
+      await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));
+    }
+  });
+
+  it('advertises metadata for the requested allowed host and rejects unknown hosts', async () => {
+    const gateway = new TokenScopedGateway({ coordinator: { call: vi.fn() }, catalogFor: () => [] });
+    const handler = createMcpHttpHandler({
+      allowedOrigins: ['https://approval.example.test', 'https://approval-alt.example.test'],
+      originForHost: (host) => host === 'approval-alt.example.test'
+        ? 'https://approval-alt.example.test' : host === 'approval.example.test'
+          ? 'https://approval.example.test' : undefined,
+      resourceMetadataUrl: (origin) => origin === undefined
+        ? undefined : `${origin}/.well-known/oauth-protected-resource/mcp`,
+      authenticate: async () => undefined,
+      gateway,
+    });
+    const server = createServer((request, response) => { void handler(request, response); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+    try {
+      const probe = (host: string) => new Promise<{ status: number | undefined; challenge: string | undefined }>((resolve, reject) => {
+        httpRequest({ hostname: '127.0.0.1', port: address.port, path: '/mcp', headers: { host } }, (response) => {
+          response.resume();
+          response.on('end', () => resolve({
+            status: response.statusCode,
+            challenge: response.headers['www-authenticate'],
+          }));
+        }).on('error', reject).end();
+      });
+      const alias = await probe('approval-alt.example.test');
+      expect(alias.status).toBe(401);
+      expect(alias.challenge).toContain(
+        'resource_metadata="https://approval-alt.example.test/.well-known/oauth-protected-resource/mcp"',
+      );
+      const unknown = await probe('untrusted.example.test');
+      expect(unknown.status).toBe(421);
+      expect(unknown.challenge).toBeUndefined();
     } finally {
       await handler.close();
       await new Promise<void>((resolve, reject) => server.close((error) => error === undefined ? resolve() : reject(error)));

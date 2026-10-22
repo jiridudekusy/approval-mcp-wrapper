@@ -56,6 +56,20 @@ describe('server configuration', () => {
       }),
     ).toThrow('VAPID_SUBJECT');
   });
+
+  it('requires explicit opt-in for private HTTP OAuth aliases and rejects ambiguous hosts', () => {
+    const base = {
+      APPROVAL_MCP_PUBLIC_URL: 'http://localhost:43127',
+      APPROVAL_MCP_DATA_DIR: '/tmp/data',
+      APPROVAL_MCP_MASTER_KEY: masterKey,
+      APPROVAL_MCP_OAUTH_ORIGINS: 'http://192.168.64.1:43127,https://approval.example.test',
+    };
+    expect(() => loadConfig(base)).toThrow('OAuth origins');
+    expect(loadConfig({ ...base, APPROVAL_MCP_ALLOW_INSECURE_OAUTH_PRIVATE_HTTP: 'true' }).oauthOrigins)
+      .toEqual(['http://localhost:43127', 'http://192.168.64.1:43127', 'https://approval.example.test']);
+    expect(() => loadConfig({ ...base, APPROVAL_MCP_OAUTH_ORIGINS: 'http://evil.example:43127', APPROVAL_MCP_ALLOW_INSECURE_OAUTH_PRIVATE_HTTP: 'true' })).toThrow('OAuth origins');
+    expect(() => loadConfig({ ...base, APPROVAL_MCP_OAUTH_ORIGINS: 'https://localhost:43127' })).toThrow('distinct host');
+  });
 });
 
 describe('SessionService', () => {

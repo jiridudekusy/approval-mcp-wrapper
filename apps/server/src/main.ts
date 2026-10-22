@@ -84,7 +84,7 @@ const journal = await createCallJournal(
   }),
 );
 const sessions = new SessionService(new StateSessionRepository(stateStore));
-const oauth = new OAuthService(stateStore, config.expectedOrigin);
+const oauth = new OAuthService(stateStore, config.expectedOrigin, () => new Date(), config.oauthOrigins);
 const credentialVault = new CredentialVault(config.masterKey);
 const pushNotifications = await PushNotificationService.create({
   state: stateStore,
@@ -487,10 +487,13 @@ const mcpGateway = new TokenScopedGateway({
   catalogFor,
 });
 const mcpHandler = createMcpHttpHandler({
-  allowedOrigins: [config.expectedOrigin],
-  resourceMetadataUrl: `${config.expectedOrigin}/.well-known/oauth-protected-resource/mcp`,
-  authenticate: async (plaintext) =>
-    oauth.authenticate(plaintext) ?? (await tokens.authenticate(plaintext))?.id,
+  allowedOrigins: config.oauthOrigins,
+  originForHost: (host) => oauth.originForHost(host),
+  resourceMetadataUrl: (origin) => origin === undefined
+    ? undefined : `${origin}/.well-known/oauth-protected-resource/mcp`,
+  authenticate: async (plaintext, origin) =>
+    (origin === undefined ? undefined : oauth.authenticate(plaintext, origin)) ??
+    (await tokens.authenticate(plaintext))?.id,
   gateway: mcpGateway,
 });
 const onCatalogChanged = () => mcpHandler.notifyToolsChanged();

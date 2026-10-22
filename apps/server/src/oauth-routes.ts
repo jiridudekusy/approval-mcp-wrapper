@@ -1,5 +1,5 @@
 import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import type { AuthPasskeyService } from './auth-routes.js';
 import { OAuthError, OAuthService } from './oauth-service.js';
@@ -21,6 +21,11 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
   sessions: SessionService;
 }): Promise<void> {
   const { oauth } = options;
+  function requestOrigin(request: FastifyRequest, reply: FastifyReply): string | undefined {
+    const origin = oauth.originForHost(request.headers.host);
+    if (origin === undefined) reply.code(421).header('cache-control', 'no-store').send({ error: 'invalid_host' });
+    return origin;
+  }
   const registrationAttempts = new Map<string, { startedAt: number; count: number }>();
   const authorizationAttempts = new Map<string, { startedAt: number; count: number }>();
   function rateLimited(attempts: Map<string, { startedAt: number; count: number }>, ip: string, limit: number): boolean {
@@ -36,21 +41,27 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
     done(null, Object.fromEntries(new URLSearchParams(body as string)));
   });
 
-  app.get('/.well-known/oauth-protected-resource/mcp', async (_request, reply) => {
+  app.get('/.well-known/oauth-protected-resource/mcp', async (request, reply) => {
+    const origin = requestOrigin(request, reply);
+    if (origin === undefined) return;
     reply.header('cache-control', 'public, max-age=300');
-    return { resource: oauth.resource, authorization_servers: [oauth.issuer], scopes_supported: ['mcp:access'] };
+    return { resource: oauth.resourceFor(origin), authorization_servers: [origin], scopes_supported: ['mcp:access'] };
   });
-  app.get('/.well-known/oauth-protected-resource', async (_request, reply) => {
+  app.get('/.well-known/oauth-protected-resource', async (request, reply) => {
+    const origin = requestOrigin(request, reply);
+    if (origin === undefined) return;
     reply.header('cache-control', 'public, max-age=300');
-    return { resource: oauth.resource, authorization_servers: [oauth.issuer], scopes_supported: ['mcp:access'] };
+    return { resource: oauth.resourceFor(origin), authorization_servers: [origin], scopes_supported: ['mcp:access'] };
   });
-  app.get('/.well-known/oauth-authorization-server', async (_request, reply) => {
+  app.get('/.well-known/oauth-authorization-server', async (request, reply) => {
+    const origin = requestOrigin(request, reply);
+    if (origin === undefined) return;
     reply.header('cache-control', 'public, max-age=300');
     return {
-      issuer: oauth.issuer,
+      issuer: origin,
       authorization_endpoint: `${oauth.issuer}/oauth/authorize`,
-      token_endpoint: `${oauth.issuer}/oauth/token`,
-      registration_endpoint: `${oauth.issuer}/oauth/register`,
+      token_endpoint: `${origin}/oauth/token`,
+      registration_endpoint: `${origin}/oauth/register`,
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
@@ -61,6 +72,8 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
   });
 
   app.post('/oauth/register', async (request, reply) => {
+    const origin = requestOrigin(request, reply);
+    if (origin === undefined) return;
     if (rateLimited(registrationAttempts, request.ip, 20)) return oauthFailure(reply, new OAuthError('rate_limited', 429));
     const body = (request.body ?? {}) as Record<string, unknown>;
     if (body['token_endpoint_auth_method'] !== undefined && body['token_endpoint_auth_method'] !== 'none') {
@@ -70,7 +83,7 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
       return oauthFailure(reply, new OAuthError('invalid_client_metadata'));
     }
     try {
-      const client = await oauth.registerClient(string(body['client_name']) ?? 'Unnamed MCP client', body['redirect_uris']);
+      const client = await oauth.registerClient(string(body['client_name']) ?? 'Unnamed MCP client', body['redirect_uris'], origin);
       return reply.code(201).header('cache-control', 'no-store').send({
         client_id: client.id, client_id_issued_at: Math.floor(Date.parse(client.createdAt) / 1000),
         client_name: client.name, redirect_uris: client.redirectUris,
@@ -96,6 +109,8 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
   });
 
   app.post('/oauth/token', async (request, reply) => {
+    const origin = requestOrigin(request, reply);
+    if (origin === undefined) return;
     const body = (request.body ?? {}) as Record<string, unknown>;
     try {
       const grantType = string(body['grant_type']);
@@ -103,12 +118,12 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
         ? await oauth.exchangeCode({
           code: string(body['code']) ?? '', clientId: string(body['client_id']) ?? '',
           redirectUri: string(body['redirect_uri']) ?? '', resource: string(body['resource']) ?? '',
-          codeVerifier: string(body['code_verifier']) ?? '',
+          codeVerifier: string(body['code_verifier']) ?? '', issuer: origin,
         })
         : grantType === 'refresh_token'
           ? await oauth.refresh({
             refreshToken: string(body['refresh_token']) ?? '', clientId: string(body['client_id']) ?? '',
-            resource: string(body['resource']) ?? '',
+            resource: string(body['resource']) ?? '', issuer: origin,
           })
           : undefined;
       if (result === undefined) throw new OAuthError('unsupported_grant_type');

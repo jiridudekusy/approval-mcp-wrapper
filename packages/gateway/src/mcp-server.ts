@@ -123,8 +123,9 @@ export class TokenScopedGateway {
 
 export interface McpHttpHandlerOptions {
   allowedOrigins: readonly string[];
-  resourceMetadataUrl?: string;
-  authenticate(bearerToken: string): Promise<ClientTokenId | undefined>;
+  resourceMetadataUrl?: string | ((resourceOrigin: string | undefined) => string | undefined);
+  originForHost?(host: string | undefined): string | undefined;
+  authenticate(bearerToken: string, resourceOrigin?: string): Promise<ClientTokenId | undefined>;
   gateway: TokenScopedGateway;
 }
 
@@ -220,15 +221,23 @@ export function createMcpHttpHandler(
   ): Promise<void> => {
     try {
       validateOrigin(singleHeader(request.headers.origin), options.allowedOrigins);
+      const resourceOrigin = options.originForHost?.(singleHeader(request.headers.host));
+      if (options.originForHost !== undefined && resourceOrigin === undefined) {
+        response.writeHead(421).end();
+        return;
+      }
       const plaintext = bearerToken(request.headers.authorization);
       const unauthorized = () => {
-        if (options.resourceMetadataUrl !== undefined) {
-          response.setHeader('WWW-Authenticate', `Bearer resource_metadata="${options.resourceMetadataUrl}", scope="mcp:access"`);
+        const metadataUrl = typeof options.resourceMetadataUrl === 'function'
+          ? options.resourceMetadataUrl(resourceOrigin)
+          : options.resourceMetadataUrl;
+        if (metadataUrl !== undefined) {
+          response.setHeader('WWW-Authenticate', `Bearer resource_metadata="${metadataUrl}", scope="mcp:access"`);
         }
         response.writeHead(401).end();
       };
       if (plaintext === undefined) { unauthorized(); return; }
-      const tokenId = await options.authenticate(plaintext);
+      const tokenId = await options.authenticate(plaintext, resourceOrigin);
       if (tokenId === undefined) { unauthorized(); return; }
       const authenticatedRequest = request as IncomingMessage & {
         method: string;

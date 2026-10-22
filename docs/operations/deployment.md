@@ -12,6 +12,14 @@ Required environment variables:
 
 Optional environment variables:
 
+- `APPROVAL_MCP_OAUTH_ORIGINS`: comma-separated additional HTTPS origins where
+  this same server is externally reachable for MCP and OAuth discovery. Each
+  origin must have a distinct host and port; the public URL is included
+  automatically. The default is only `APPROVAL_MCP_PUBLIC_URL`.
+- `APPROVAL_MCP_ALLOW_INSECURE_OAUTH_PRIVATE_HTTP=true`: test-only opt-in to
+  allow RFC 1918 HTTP IPv4 origins in `APPROVAL_MCP_OAUTH_ORIGINS`. Most MCP
+  OAuth clients will refuse a non-TLS token endpoint, so this does not make
+  private HTTP IPs usable for normal OAuth sign-in.
 - `APPROVAL_MCP_VAPID_SUBJECT`: a `mailto:` address or HTTPS URL identifying
   the Web Push sender. It defaults to the public HTTPS origin. Loopback
   development uses a reserved example address.
@@ -22,13 +30,33 @@ subscriptions, and the generated VAPID private key unrecoverable. Do not
 put it in an image, Compose file, Git repository, or backup manifest.
 
 Map persistent storage to `/data`, publish port 3000 only to the reverse proxy,
-and forward the original host and scheme. The public URL fixes the WebAuthn RP
-ID and origin; changing its hostname requires registering a new passkey.
-It also fixes the OAuth issuer and MCP resource URI. Keep it stable when clients
-are signed in: changing it requires a new authorization. The reverse proxy must
-expose `/mcp`, `/.well-known/oauth-protected-resource/mcp`,
-`/.well-known/oauth-authorization-server`, `/oauth/*`, and `/api/oauth/*` on
-the same public origin. Do not cache token or consent responses.
+and forward the original `Host` header, including its external port. The
+public URL fixes the WebAuthn RP ID and sign-in origin; changing its hostname
+requires registering a new passkey. Each configured OAuth origin advertises
+its own issuer and MCP resource URI. A client must use the same origin for
+discovery, registration, token exchange, and MCP calls; changing its URL
+requires a new authorization. The browser-based consent and passkey ceremony
+always open on `APPROVAL_MCP_PUBLIC_URL`, even when the MCP client connects
+through an alias. Every alias must expose `/mcp`,
+`/.well-known/oauth-protected-resource/mcp`,
+`/.well-known/oauth-authorization-server`, `/oauth/register`, and
+`/oauth/token`. The public URL must also expose `/oauth/authorize`,
+`/oauth/consent/*`, and `/api/oauth/*`. Do not cache token or consent responses.
+
+For example, if the Mac browser signs in at `http://localhost:43127` while
+clients connect through `https://approval.example.com`, set:
+
+```text
+APPROVAL_MCP_PUBLIC_URL=http://localhost:43127
+APPROVAL_MCP_OAUTH_ORIGINS=https://approval.example.com
+```
+
+Both origins must reach this deployment. An alias behind a reverse proxy must
+be on its allowlist and preserve the external `Host`; arbitrary inbound hosts
+are rejected to prevent OAuth metadata from being forged. A private address
+such as `http://192.168.64.1:43127` can only be enabled with the explicit
+test-only flag above. Current MCP SDK clients reject its HTTP token endpoint;
+use an HTTPS alias or a sandbox-side localhost port forward instead.
 
 Web Push VAPID keys are generated once and persisted under `/data`; the private
 key and every browser subscription are encrypted with the master key. A
