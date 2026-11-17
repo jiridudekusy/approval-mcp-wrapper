@@ -3653,4 +3653,7 @@ pre,
 .setup-before { color: var(--muted); font-size: 13px; text-decoration: line-through; }
 .setup-before-label { color: var(--muted); font-size: 12px; }
 .setup-outcome { display: grid; gap: 14px; justify-items: start; margin-top: 18px; }
+.setup-verification { display: grid; gap: 12px; justify-items: start; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.setup-probe-ok { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0 0; color: var(--positive); font-size: 14px; line-height: 1.5; }
+.setup-probe-ok svg { flex: 0 0 auto; margin-top: 2px; }
 @media (max-width: 520px) { .setup-item dl { grid-template-columns: 1fr; } }

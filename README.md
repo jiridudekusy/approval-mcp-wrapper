@@ -203,49 +203,72 @@ admin UI applies the same rule. Each upstream also accepts `description`,
 value. A presentation plugin is assigned in the admin UI, and setup keeps it.
 `source` is a self-reported name and is shown as unverified.
 
-The CLI identifies itself with an MCP client token, read from
-`APPROVAL_MCP_TOKEN`. It cannot use your passkey, which works only in the
-browser, or the OAuth token an MCP client such as Claude Code keeps to
-itself, and OAuth access tokens are not accepted. The token only lets the CLI
-submit requests and follow its own requests; every change still needs your
-passkey on the approval page.
+By default the CLI obtains its own short-lived OAuth token. No manually
+generated token is required, and it never reads Claude Code's or another MCP
+client's credential cache. The browser consent explains that `setup:submit`
+only permits submitting plans and following the requester's own requests.
+The token is restricted to `/api/setup` and one immutable setup declaration.
+It ends automatically after the client acknowledges the result, with a
+server-side safety limit of 30 minutes. It has no refresh token and cannot
+call MCP tools or approve its own changes.
+Token values stay in CLI memory, not files, arguments, or logs.
 
 Step by step:
 
-1. **Create a token.** Sign in to the web app, open **Access**, choose
-   **Generate token**, and name it, for example `setup`. Leave **Allow
-   management MCP tools** off. The token is shown only once.
-2. **Keep it away from tools it does not need.** A token without assigned
-   profiles uses the default profile. If the token should reach no tools,
-   assign it a profile that has no rules in **Agent profiles**. Setup works
-   either way.
-3. **Store it outside the repository.** On macOS, save it once in the
-   Keychain (the command asks for the value without echoing it) and read it
-   from there:
+1. **Run the CLI where your browser can reach its callback.** From a checkout:
 
    ```bash
-   security add-generic-password -a "$USER" -s approval-mcp-setup -w
-   export APPROVAL_MCP_TOKEN=$(security find-generic-password -a "$USER" -s approval-mcp-setup -w)
+   node scripts/approval-mcp-setup.mjs --server https://approval.example.com --file .approval-mcp.json
    ```
 
-   Elsewhere, type it without echo: `read -rs APPROVAL_MCP_TOKEN && export APPROVAL_MCP_TOKEN`
-   (in zsh, `read -rs "APPROVAL_MCP_TOKEN?Token: "`).
-4. **Run the CLI.** It ships in the wrapper image, so the project needs
-   nothing installed. From the project directory, pipe the file into the
-   running container (named `approval-mcp` in the quick start above).
-   `-e VARIABLE` without a value copies the variable from your shell, so the
-   token appears neither in the command nor in `docker inspect`:
+2. **Authorize setup access.** The CLI opens the browser, or prints a link
+   if automatic opening is unavailable. Review who is asking and why, then
+   confirm with your passkey. No token lifetime or MCP profile selection is
+   required; the server owns the time limit and automatic cleanup.
+3. **Review the plan.** The CLI opens/prints a second link. Check the
+   authenticated requester, addresses, network permissions, and changes.
+4. **Enter missing secrets in that page.** `Authorization` and custom header
+   fields such as `X-API-Key` are supported. If any referenced variable for an
+   upstream is missing, enter all its credential fields in the browser instead.
+   `credentialFields: ["Authorization", "X-API-Key"]` may also declare field
+   names explicitly without environment references. The values are never
+   returned to the CLI or an LLM.
+5. **Test MCP connections.** This is an explicit, authenticated network action
+   to the displayed destinations. The server initializes each changed MCP
+   connection and discovers its tools, using the same network policy as normal
+   connections. It never calls a tool. Tests have a 10-second deadline per
+   upstream, at most four run per batch, and testing does not hold the config
+   write queue. Errors are sanitized; raw upstream response bodies are hidden.
+6. **Confirm with passkey.** A successful verification is valid for two minutes
+   and is bound to the plan and entered credentials. Changing credentials,
+   expiration, or concurrent configuration edits requires another test or a
+   new plan. Configuration and encrypted credentials are written atomically.
+   Successful discovery proves current connectivity, not future availability.
 
-   ```bash
-   docker exec -i -e APPROVAL_MCP_TOKEN approval-mcp approval-mcp-setup < .approval-mcp.json
-   ```
+OAuth uses Authorization Code + S256 PKCE with a random loopback callback and
+checks both `state` and issuer. The callback is on the **CLI machine**, not the
+Approval server. If Safari is on the host and the CLI is in a sandbox/container,
+forward a fixed callback port to that environment. Set
+`APPROVAL_MCP_CALLBACK_PORT=43210` and, only when required for a container port
+mapping, `APPROVAL_MCP_CALLBACK_BIND=0.0.0.0`. The browser callback is always
+`http://127.0.0.1:43210/callback`. Publish the port on host loopback only
+(`127.0.0.1:43210:43210`), never to the LAN. A server container must already
+have this mapping to run OAuth via `docker exec`; running the CLI on the host
+avoids it. Device Flow is not implemented.
 
-5. **Approve.** Open the link the CLI prints, check the plan and the token
-   name shown as the requester, and confirm with your passkey. The CLI
-   reports the result.
+**Legacy tokens remain supported.** If `APPROVAL_MCP_TOKEN` is set, the CLI
+uses that credential without starting OAuth. This can be a manually generated
+MCP client token, or an unexpired access token issued specifically with
+`setup:submit` for this server. An ordinary `mcp:access` OAuth token is rejected.
+Do not grant management tools to a legacy setup token, and assign an empty
+tool profile if it should have no MCP access. The image still includes the CLI:
+
+```bash
+docker exec -i -e APPROVAL_MCP_TOKEN approval-mcp approval-mcp-setup < .approval-mcp.json
+```
 
 Pass referenced credential variables the same way, or leave them out and
-enter the `Authorization` value on the approval page:
+enter the required credentials on the approval page:
 
 ```bash
 docker exec -i -e APPROVAL_MCP_TOKEN -e JIRA_MCP_TOKEN approval-mcp approval-mcp-setup < .approval-mcp.json
@@ -275,11 +298,10 @@ The flow:
    review every value that will be stored and the client token that asked for
    it. Changed values are marked, and an address change also shows the
    address it replaces.
-3. If the `Authorization` variable is not set, the CLI asks for that credential on
-   the approval page instead. The page only collects the `Authorization`
-   header, so the CLI refuses to submit an upstream with custom `headers`
-   unless all of its variables are set.
-4. Confirm with your passkey. The CLI reports the result.
+3. Enter missing credential fields in the approval page. For an upstream
+   declared without credentials, an optional `Authorization` field lets you
+   supply a value if the connection test reports authentication is required.
+4. Test the connections, then confirm with your passkey. The CLI reports the result.
 
 Safety rules:
 

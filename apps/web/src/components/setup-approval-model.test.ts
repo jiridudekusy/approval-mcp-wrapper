@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   approvalCredentials,
+  credentialInputKey,
   enteredValue,
   requiredCredentialAliases,
   valueRows,
@@ -21,6 +22,15 @@ function item(overrides: Partial<SetupPlanItem>): SetupPlanItem {
 }
 
 describe('setup approval model', () => {
+  it('collects all named secret fields without including empty optional credentials', () => {
+    const plan = item({ credentials: 'required', credentialFields: ['Authorization', 'X-API-Key'] });
+    expect(approvalCredentials([plan], { jira: 'Bearer x' })).toBeUndefined();
+    expect(approvalCredentials([plan], { jira: 'Bearer x', [credentialInputKey('jira', 'X-API-Key')]: 'private' }))
+      .toEqual({ jira: { authorization: 'Bearer x', headers: { 'X-API-Key': 'private' } } });
+    expect(approvalCredentials([item({ credentials: 'none' })], {})).toEqual({});
+    expect(approvalCredentials([item({ credentials: 'none' })], { jira: 'Bearer entered' }))
+      .toEqual({ jira: { authorization: 'Bearer entered' } });
+  });
   it('lists aliases that need operator credentials', () => {
     expect(requiredCredentialAliases([
       item({ alias: 'a', credentials: 'required' }),

@@ -30,6 +30,7 @@ COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist
 COPY --from=build --chown=node:node /app/scripts/plugin-fixtures.mjs ./scripts/plugin-fixtures.mjs
 # Declarative upstream setup CLI: docker exec -i <container> approval-mcp-setup < .approval-mcp.json
 COPY --from=build --chown=node:node /app/scripts/approval-mcp-setup.mjs ./scripts/approval-mcp-setup.mjs
+COPY --from=build --chown=node:node /app/scripts/setup-oauth.mjs ./scripts/setup-oauth.mjs
 COPY --from=build --chmod=0755 /app/scripts/container/approval-mcp-setup /usr/local/bin/approval-mcp-setup
 
 RUN mkdir /data && chown node:node /data

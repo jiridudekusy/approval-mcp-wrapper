@@ -16,6 +16,8 @@ import {
   type SetupDeclaration,
 } from './setup-declaration.js';
 import { SetupError } from './setup-error.js';
+import { probeMcp, type ProbeResult } from './setup-probe.js';
+import type { McpConnectInput } from '@approval-mcp/upstream';
 import {
   canonicalJson,
   computeSetupPlan,
@@ -37,6 +39,7 @@ export type SetupRequestStatus = 'pending' | 'applied' | 'denied';
 export interface SetupRequester {
   id: string;
   label: string;
+  singleUse?: boolean;
 }
 
 /**
@@ -88,10 +91,11 @@ interface SetupRequest {
   declaration: SetupDeclaration;
   plan: SetupPlan;
   results?: SetupResult[];
+  verification?: { id: string; credentialDigest: string; expiresAt: number };
 }
 
 export type SubmitResult =
-  | { status: 'unchanged'; items: SetupItemSummary[] }
+  | { status: 'unchanged'; items: SetupItemSummary[]; requestId?: string }
   | {
       status: 'pending';
       requestId: string;
@@ -106,6 +110,8 @@ export interface SetupServiceOptions {
   publicOrigin: string;
   onUpstreamsChanged?(): Promise<void>;
   now?: () => Date;
+  probe?(input: McpConnectInput): Promise<ProbeResult>;
+  claimRequest?(requester: SetupRequester, inputDigest: string): Promise<boolean>;
 }
 
 /**
@@ -162,6 +168,7 @@ export class SetupService {
   readonly #options: SetupServiceOptions;
   readonly #now: () => Date;
   readonly #requests = new Map<string, SetupRequest>();
+  readonly #verifying = new Set<string>();
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(options: SetupServiceOptions) {
@@ -209,6 +216,7 @@ export class SetupService {
     request.status = status;
     request.expiresAt = new Date(this.#now().getTime() + DECIDED_SETUP_RETENTION_MS);
     request.declaration = withoutCredentials(request.declaration);
+    delete request.verification;
     if (results !== undefined) request.results = results;
   }
 
@@ -225,11 +233,23 @@ export class SetupService {
   submit(input: unknown, requester: SetupRequester): Promise<SubmitResult> {
     const declaration = parseSetupDeclaration(input);
     return this.#serialize(async () => {
+      const inputDigest = createHash('sha256').update(canonicalJson(declaration)).digest('hex');
+      if (requester.singleUse && !await this.#options.claimRequest?.(requester, inputDigest)) {
+        throw new SetupError('auth.setup_bound', 403);
+      }
       const plan = this.#options.state.read((state) => this.#plan(declaration, state));
-      if (plan.items.every((item) => item.action === 'unchanged')) {
+      const unchanged = plan.items.every((item) => item.action === 'unchanged');
+      if (unchanged && !requester.singleUse) {
         return { status: 'unchanged', items: summary(plan.items) };
       }
       this.#prune();
+      if (requester.singleUse) {
+        const decided = [...this.#requests.values()].find((request) => request.requester.id === requester.id && request.inputDigest === inputDigest && request.status !== 'pending');
+        if (decided !== undefined) {
+          if (unchanged && decided.status === 'applied') return { status: 'unchanged', items: summary(plan.items), requestId: decided.id };
+          throw new SetupError('setup.already_decided', 409);
+        }
+      }
       const own = [...this.#requests.values()].filter((request) =>
         request.status === 'pending' && request.requester.id === requester.id);
       const now = this.#now();
@@ -238,7 +258,6 @@ export class SetupService {
       // reuses its pending request instead of taking another slot. Any other
       // input, including different credentials, becomes a new request, so the
       // content behind a request the admin reviewed never changes.
-      const inputDigest = createHash('sha256').update(canonicalJson(declaration)).digest('hex');
       const repeated = own.find((request) =>
         request.inputDigest === inputDigest && request.plan.digest === plan.digest);
       if (repeated !== undefined) return this.#pendingResult(repeated);
@@ -256,8 +275,16 @@ export class SetupService {
         plan,
       };
       this.#requests.set(request.id, request);
+      if (unchanged) {
+        this.#decide(request, 'applied');
+        return { status: 'unchanged', items: summary(plan.items), requestId: request.id };
+      }
       return this.#pendingResult(request);
     });
+  }
+
+  acknowledge(id: string, requester: SetupRequester): void {
+    if (this.status(id, requester).status === 'pending') throw new SetupError('setup.not_decided', 409);
   }
 
   /** Progress for the requester; other tokens cannot see that the request exists. */
@@ -305,13 +332,67 @@ export class SetupService {
     }
     const entered = new Map<string, UpstreamCredentials>();
     for (const [alias, credentials] of Object.entries((value ?? {}) as Record<string, unknown>)) {
-      if (!required.has(alias)) throw new SetupError('setup.credentials_unexpected');
-      entered.set(alias, parseCredentials(credentials));
+      const item = plan.items.find((candidate) => candidate.alias === alias);
+      if (item === undefined || !(item.credentials === 'required' ||
+        (item.credentials === 'none' && item.action !== 'unchanged'))) throw new SetupError('setup.credentials_unexpected');
+      const parsed = parseCredentials(credentials);
+      const actual = [ ...(parsed.authorization === undefined ? [] : ['authorization']), ...Object.keys(parsed.headers ?? {}).map((key) => key.toLowerCase()) ].sort();
+      const expected = (item.credentialFields ?? ['Authorization']).map((key) => key.toLowerCase()).sort();
+      if (canonicalJson(actual) !== canonicalJson(expected)) throw new SetupError('setup.credentials_missing');
+      entered.set(alias, parsed);
     }
     if ([...required].some((alias) => !entered.has(alias))) {
       throw new SetupError('setup.credentials_missing');
     }
     return entered;
+  }
+
+  /** Explicit admin-triggered network access. Never runs inside the configuration write queue. */
+  async verify(id: string, input: { planDigest: unknown; credentials?: unknown }) {
+    const request = this.#pending(id);
+    if (input.planDigest !== approvalDigest(request)) throw new SetupError('setup.plan_mismatch', 409);
+    const entered = this.#enteredCredentials(request.plan, input.credentials);
+    // Snapshot the plan AND the credentials together, before any await. A later
+    // edit must never send newly stored credentials to this plan's old address.
+    const prepared = this.#options.state.read((state) => {
+      if (this.#plan(request.declaration, state).digest !== request.plan.digest) throw new SetupError('setup.plan_stale', 409);
+      return request.plan.items.filter((item) => item.action !== 'unchanged').map((item) => {
+        const stored = item.upstreamId === undefined ? undefined : state.upstreams[item.upstreamId] as unknown as Upstream | undefined;
+        const declared = request.declaration.upstreams.find((upstream) => upstream.alias === item.alias);
+        const credentials = item.credentials === 'keep' && stored?.credentials !== undefined
+          ? this.#options.credentialVault.decrypt(stored.id, stored.credentials)
+          : item.credentials === 'provided' ? declared?.credentials : entered.get(item.alias);
+        return { alias: item.alias, input: {
+          url: new URL(item.desired.url), allowPrivateNetwork: item.desired.allowPrivateNetwork,
+          ...(credentials === undefined ? {} : { credentials }),
+        } };
+      });
+    });
+    if (this.#verifying.has(id) || this.#verifying.size >= 2) throw new SetupError('setup.verification_busy', 429);
+    this.#verifying.add(id);
+    delete request.verification;
+    try {
+      const results: ({ alias: string } & ProbeResult)[] = [];
+      for (let offset = 0; offset < prepared.length; offset += 4) {
+        this.#pending(id);
+        results.push(...await Promise.all(prepared.slice(offset, offset + 4).map(async (item) => {
+          const result = await (this.#options.probe ?? probeMcp)(item.input);
+          return { alias: item.alias, ...result };
+        })));
+      }
+      if (this.#pending(id) !== request) throw new SetupError('setup.request_not_found', 404);
+      const checkedAt = this.#now();
+      if (results.every((item) => item.status === 'ok')) {
+        request.verification = { id: randomUUID(), credentialDigest: createHash('sha256').update(canonicalJson(Object.fromEntries(entered))).digest('hex'),
+          expiresAt: Math.min(checkedAt.getTime() + 120_000, request.expiresAt.getTime()) };
+      }
+      return { results, checkedAt: checkedAt.toISOString(),
+        ...(request.verification === undefined ? {} : {
+          verificationId: request.verification.id, expiresAt: new Date(request.verification.expiresAt).toISOString(),
+        }) };
+    } finally {
+      this.#verifying.delete(id);
+    }
   }
 
   #applyOperations(
@@ -335,7 +416,7 @@ export class SetupService {
       const base = item.upstreamId === undefined ? undefined : existing.get(item.upstreamId);
       const plaintext = item.credentials === 'provided'
         ? declared.get(item.alias)?.credentials
-        : item.credentials === 'required'
+        : item.credentials === 'required' || item.credentials === 'none'
           ? entered.get(item.alias)
           : undefined;
       const credentials = item.credentials === 'keep'
@@ -365,7 +446,7 @@ export class SetupService {
 
   approve(
     id: string,
-    input: { planDigest: string; credentials: unknown },
+    input: { planDigest: string; credentials: unknown; verificationId?: unknown },
   ): Promise<{ status: 'applied'; results: SetupResult[] }> {
     return this.#serialize(async () => {
       const request = this.#pending(id);
@@ -373,6 +454,9 @@ export class SetupService {
         throw new SetupError('setup.plan_mismatch', 409);
       }
       const entered = this.#enteredCredentials(request.plan, input.credentials);
+      const verification = request.verification;
+      const verified = verification !== undefined && verification.id === input.verificationId &&
+        verification.credentialDigest === createHash('sha256').update(canonicalJson(Object.fromEntries(entered))).digest('hex');
       // The plan is recomputed and written in one step of the state queue, so a
       // concurrent change (for example an admin edit) either lands before it and
       // makes the plan stale, or lands after it and fails its own version check.
@@ -386,6 +470,9 @@ export class SetupService {
           if (!(error instanceof SetupError)) throw error;
         }
         if (current?.digest !== request.plan.digest) return { result: { kind: 'stale' } };
+        if (!verified || request.verification !== verification || verification.expiresAt <= this.#now().getTime()) {
+          throw new SetupError('setup.verification_required', 409);
+        }
         const { operations, results } = this.#applyOperations(request, current, entered, state);
         return {
           ...(operations.length === 0 ? {} : { event: { type: 'records.batch', operations } }),

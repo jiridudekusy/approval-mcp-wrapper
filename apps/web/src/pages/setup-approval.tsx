@@ -6,6 +6,8 @@ import { Icon } from '../components/icon.js';
 import { LanguageSwitch } from '../components/language-switch.js';
 import {
   approvalCredentials,
+  credentialInputs,
+  credentialInputKey,
   enteredValue,
   valueRows,
   warnsAboutPrivateNetwork,
@@ -18,6 +20,12 @@ import { useI18n } from '../i18n/i18n.js';
 import { useTheme } from '../theme/theme.js';
 
 type Outcome = 'pending' | 'applied' | 'denied';
+interface Verification {
+  verificationId?: string;
+  checkedAt: string;
+  expiresAt?: string;
+  results: { alias: string; status: 'ok' | 'error'; toolCount?: number; code?: 'auth_required' | 'address_blocked' | 'timeout' | 'connection_failed' }[];
+}
 
 export function SetupApproval({ requestId, csrfToken }: { requestId: string; csrfToken: string }) {
   const { t, formatDate } = useI18n();
@@ -27,18 +35,42 @@ export function SetupApproval({ requestId, csrfToken }: { requestId: string; csr
   const [outcome, setOutcome] = useState<Outcome>('pending');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  const [verification, setVerification] = useState<Verification>();
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     let active = true;
     setRequest(undefined);
     setError(false);
+    setEntered({});
+    setVerification(undefined);
     void api<SetupRequestView>(`/api/setup/requests/${encodeURIComponent(requestId)}`)
       .then((result) => { if (active) setRequest(result); })
       .catch(() => { if (active) setError(true); });
     return () => { active = false; };
   }, [requestId]);
 
+  useEffect(() => {
+    const timer = globalThis.setInterval(() => setNow(Date.now()), 1000);
+    return () => globalThis.clearInterval(timer);
+  }, []);
+
   const credentials = request === undefined ? undefined : approvalCredentials(request.items, entered);
+  const verified = verification?.verificationId !== undefined && verification.expiresAt !== undefined && Date.parse(verification.expiresAt) > now;
+
+  async function verify() {
+    if (request === undefined || credentials === undefined) return;
+    setBusy(true);
+    setError(false);
+    setVerification(undefined);
+    try {
+      setVerification(await api<Verification>(`/api/setup/requests/${encodeURIComponent(requestId)}/verify`, {
+        method: 'POST', body: JSON.stringify({ planDigest: request.planDigest, credentials }),
+      }, csrfToken));
+      setNow(Date.now());
+    } catch { setError(true); }
+    finally { setBusy(false); }
+  }
 
   function display(field: SetupValueField, value: SetupDisplayValue) {
     if (typeof value === 'boolean') return <span>{t(value ? 'setup.yes' : 'setup.no')}</span>;
@@ -46,7 +78,7 @@ export function SetupApproval({ requestId, csrfToken }: { requestId: string; csr
   }
 
   async function approve() {
-    if (request === undefined || credentials === undefined) return;
+    if (request === undefined || credentials === undefined || !verified) return;
     setBusy(true);
     setError(false);
     try {
@@ -61,6 +93,7 @@ export function SetupApproval({ requestId, csrfToken }: { requestId: string; csr
           body: JSON.stringify({
             planDigest: request.planDigest,
             passkey,
+            verificationId: verification?.verificationId,
             ...(Object.keys(credentials).length === 0 ? {} : { credentials }),
           }),
         },
@@ -128,24 +161,34 @@ export function SetupApproval({ requestId, csrfToken }: { requestId: string; csr
                   <dt>{t('setup.field.credentials')}</dt><dd>{t(`setup.credentials.${item.credentials}` as MessageKey)}</dd>
                 </dl>
                 {warnsAboutPrivateNetwork(item) && <p className="oauth-warning"><Icon name="alert" size={18} /><span>{t('setup.privateNetwork')}</span></p>}
-                {item.credentials === 'required' && <label className="oauth-field">{t('setup.credentialLabel')}
-                  <input type="password" autoComplete="off" spellCheck={false} disabled={busy} value={enteredValue(entered, item.alias)} onChange={(event) => {
+                {credentialInputs(item).map((field) => <label className="oauth-field" key={field}>{field}{item.credentials === 'none' ? ` (${t('setup.optionalCredential')})` : ''}
+                  <input type="password" autoComplete="off" spellCheck={false} disabled={busy} value={enteredValue(entered, credentialInputKey(item.alias, field))} onChange={(event) => {
                     const value = event.target.value;
+                    setVerification(undefined);
                     setEntered((previous) => {
                       const next = { ...previous };
-                      Object.defineProperty(next, item.alias, { value, enumerable: true, writable: true, configurable: true });
+                      Object.defineProperty(next, credentialInputKey(item.alias, field), { value, enumerable: true, writable: true, configurable: true });
                       return next;
                     });
                   }} />
-                  <small>{t('setup.credentialHint')}</small>
-                </label>}
+                  <small>{t(field.toLowerCase() === 'authorization' ? 'setup.credentialHint' : 'setup.customCredentialHint')}</small>
+                </label>)}
+                {verification?.results.filter((result) => result.alias === item.alias).map((result) => <p key={result.alias} role="status" className={result.status === 'error' ? 'oauth-error' : 'setup-probe-ok'}>
+                  {result.status === 'ok' && <Icon name="shield-check" size={18} />}
+                  {result.status === 'ok' ? `${t('setup.connectionOk')} · ${result.toolCount} ${t('setup.toolCount')}` : t(`setup.probe.${result.code ?? 'connection_failed'}`)}
+                </p>)}
               </li>)}
             </ul>
             {request.items.some((item) => item.action === 'create') && <p className="oauth-warning"><Icon name="info" size={18} /><span>{t('setup.toolsHidden')}</span></p>}
+            <section className="setup-verification" aria-label={t('setup.verifyTitle')}>
+            <div className="oauth-form-heading"><h2>{t('setup.verifyTitle')}</h2><p>{t('setup.verifyHint')}</p></div>
+            <button type="button" className="secondary-button" disabled={busy || credentials === undefined} onClick={() => void verify()}>{t(busy ? 'setup.checking' : 'setup.verify')}</button>
+            {verification && <p className="oauth-intro">{t('setup.checkedAt')}: {formatDate(new Date(verification.checkedAt))}{verification.verificationId && !verified ? ` · ${t('setup.verificationExpired')}` : ''}</p>}
+            </section>
             {error && <p className="oauth-error" role="alert">{t('setup.failed')}</p>}
             <div className="oauth-actions">
               <button type="button" className="secondary-button" disabled={busy} onClick={() => void deny()}>{t('setup.deny')}</button>
-              <button type="button" className="primary" disabled={busy || credentials === undefined} onClick={() => void approve()}><Icon name="fingerprint" size={18} />{t('setup.approve')}</button>
+              <button type="button" className="primary" disabled={busy || credentials === undefined || !verified} onClick={() => void approve()}><Icon name="fingerprint" size={18} />{t('setup.approve')}</button>
             </div>
           </>}
     </section>

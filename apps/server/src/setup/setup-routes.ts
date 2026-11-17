@@ -34,7 +34,8 @@ export async function registerSetupRoutes(
     passkeys: AuthPasskeyService;
     sessions: SessionService;
     /** Resolves an MCP client token (Access → Tokens) to the requester it identifies. */
-    authenticateRequester(token: string): Promise<SetupRequester | undefined>;
+    authenticateRequester(token: string, host?: string): Promise<SetupRequester | undefined>;
+    completeRequester?(requester: SetupRequester): Promise<void>;
   },
 ): Promise<void> {
   const { setup } = options;
@@ -42,7 +43,7 @@ export async function registerSetupRoutes(
   /** Setup requests are tied to the client token they were submitted with. */
   async function requester(request: FastifyRequest): Promise<SetupRequester> {
     const token = BEARER.exec(request.headers.authorization ?? '')?.[1];
-    const found = token === undefined ? undefined : await options.authenticateRequester(token);
+    const found = token === undefined ? undefined : await options.authenticateRequester(token, request.headers.host);
     if (found === undefined) throw new SetupError('auth.token_required', 401);
     return found;
   }
@@ -79,9 +80,22 @@ export async function registerSetupRoutes(
     scope.get('/api/setup/requests/:id/status', async (request) =>
       setup.status(requestId(request), await requester(request)));
 
+    scope.post('/api/setup/requests/:id/acknowledge', async (request) => {
+      const owner = await requester(request);
+      setup.acknowledge(requestId(request), owner);
+      if (owner.singleUse) await options.completeRequester?.(owner);
+      return { acknowledged: true };
+    });
+
     scope.get('/api/setup/requests/:id', async (request, reply) => {
       if (!await authorizeAdmin(request, reply, options.sessions, false)) return reply;
       return setup.pending(requestId(request));
+    });
+
+    scope.post('/api/setup/requests/:id/verify', { bodyLimit: MAX_SETUP_BODY_BYTES }, async (request, reply) => {
+      if (!await authorizeAdmin(request, reply, options.sessions, true)) return reply;
+      const body = (request.body ?? {}) as { planDigest?: unknown; credentials?: unknown };
+      return setup.verify(requestId(request), { planDigest: body.planDigest, credentials: body.credentials });
     });
 
     scope.post('/api/setup/requests/:id/approve', { bodyLimit: MAX_SETUP_BODY_BYTES }, async (request, reply) => {
@@ -91,6 +105,7 @@ export async function registerSetupRoutes(
         planDigest?: unknown;
         credentials?: unknown;
         passkey?: unknown;
+        verificationId?: unknown;
       };
       if (
         typeof body.planDigest !== 'string' ||
@@ -110,6 +125,7 @@ export async function registerSetupRoutes(
       const result = await setup.approve(id, {
         planDigest: body.planDigest,
         credentials: body.credentials,
+        verificationId: body.verificationId,
       });
       request.log.info({ setupRequestId: id, adminId: session.adminId, results: result.results }, 'Setup request applied');
       return result;

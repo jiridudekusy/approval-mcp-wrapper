@@ -32,10 +32,11 @@ jobs:
         run: npm run verify
       - name: Install verification browser
         run: npx playwright install --with-deps chromium
-      - name: Verify plugin management and isolated PRF vault in browser
+      - name: Verify setup, plugin management and isolated PRF vault in browser
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
+          npm run test:setup-ui
           npm run test:plugin-ui
           npm run test:passkey-vault-ui
           npm run test:storage-vault-ui

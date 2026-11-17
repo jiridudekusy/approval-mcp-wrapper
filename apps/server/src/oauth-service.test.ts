@@ -39,6 +39,66 @@ async function authorize(f: Awaited<ReturnType<typeof fixture>>, lifetime = 7200
 }
 
 describe('OAuth authorization code and PKCE', () => {
+  it('issues setup-only access without a profile, refresh token, or MCP permissions', async () => {
+    const f = await fixture();
+    const resource = `${origin}/api/setup`;
+    const id = await f.oauth.request({ clientId: f.client.id, redirectUri, resource, scope: 'setup:submit',
+      responseType: 'code', codeChallenge: challenge, codeChallengeMethod: 'S256' });
+    expect(f.oauth.pending(id)).toMatchObject({ scope: 'setup:submit', profiles: [] });
+    await expect(f.oauth.approve(id, f.profile.id, 1800, 'admin')).rejects.toMatchObject({ code: 'invalid_request' });
+    const code = new URL(await f.oauth.approve(id, '', undefined, 'admin', 'Workspace setup')).searchParams.get('code')!;
+    const token = await f.oauth.exchangeCode({ code, clientId: f.client.id, redirectUri, resource, codeVerifier: verifier });
+    expect(token).toMatchObject({ scope: 'setup:submit', expires_in: 1800 });
+    expect(token.refresh_token).toBeUndefined();
+    expect(f.oauth.authenticate(token.access_token)).toBeUndefined();
+    const agentId = f.oauth.authenticate(token.access_token, origin, 'setup:submit');
+    expect(agentId).toBeDefined();
+    expect(f.oauth.authenticate(token.access_token, 'https://wrong.example', 'setup:submit')).toBeUndefined();
+    expect(Object.values(f.state.read((state) => state.tokenProfileAssignments))).toHaveLength(0);
+    await f.state.mutate({ type: 'record.upserted', collection: 'clientTokens', id: agentId!,
+      value: { ...(f.state.read((state) => state.clientTokens[agentId!]) as object), revokedAt: f.now().toISOString() } as JsonValue });
+    expect(f.oauth.authenticate(token.access_token, origin, 'setup:submit')).toBeUndefined();
+    await f.state.close();
+  });
+
+  it('enforces the setup lifetime on the server and persists one-declaration binding across restart', async () => {
+    const f = await fixture();
+    const resource = `${origin}/api/setup`;
+    const id = await f.oauth.request({ clientId: f.client.id, redirectUri, resource, scope: 'setup:submit',
+      responseType: 'code', codeChallenge: challenge, codeChallengeMethod: 'S256' });
+    const code = new URL(await f.oauth.approve(id, '', 30 * 24 * 3600, 'admin')).searchParams.get('code')!;
+    const token = await f.oauth.exchangeCode({ code, clientId: f.client.id, redirectUri, resource, codeVerifier: verifier });
+    expect(token.expires_in).toBe(1800);
+    const owner = f.oauth.authenticate(token.access_token, origin, 'setup:submit')!;
+    const outcomes = await Promise.all([f.oauth.claimSetup(owner, 'first-plan'), f.oauth.claimSetup(owner, 'different-plan')]);
+    expect(outcomes).toEqual([true, false]);
+    expect(await f.oauth.claimSetup(owner, 'first-plan')).toBe(true);
+    await f.state.close();
+    const reopened = await createConfigStateStore(f.dataDir);
+    const restarted = new OAuthService(reopened, origin, f.now);
+    expect(await restarted.claimSetup(owner, 'different-plan')).toBe(false);
+    expect(await restarted.claimSetup(owner, 'first-plan')).toBe(true);
+    await restarted.completeSetup(owner);
+    expect(restarted.authenticate(token.access_token, origin, 'setup:submit')).toBeUndefined();
+    expect(await restarted.claimSetup(owner, 'first-plan')).toBe(false);
+    await restarted.completeSetup(owner); // Idempotent completion.
+    await reopened.close();
+  });
+
+  it('rejects cross-purpose scopes/resources and never accepts MCP tokens for setup', async () => {
+    const f = await fixture();
+    await expect(f.oauth.approve(f.requestId, f.profile.id, undefined, 'admin')).rejects.toMatchObject({ code: 'invalid_grant_lifetime' });
+    const base = { clientId: f.client.id, redirectUri, responseType: 'code', codeChallenge: challenge, codeChallengeMethod: 'S256' };
+    for (const input of [
+      { resource: `${origin}/mcp`, scope: 'setup:submit' },
+      { resource: `${origin}/api/setup`, scope: 'mcp:access' },
+      { resource: `${origin}/api/setup`, scope: 'setup:submit mcp:access' },
+    ]) await expect(f.oauth.request({ ...base, ...input })).rejects.toMatchObject({ code: 'invalid_request' });
+    const token = await authorize(f);
+    expect(f.oauth.authenticate(token.access_token, origin, 'setup:submit')).toBeUndefined();
+    await f.state.close();
+  });
+
   it('issues a profile-bound, time-limited client only after consent', async () => {
     const { state, oauth, profile, client, requestId, advance } = await fixture();
     expect(Object.keys(state.read((snapshot) => snapshot.clientTokens))).toHaveLength(0);

@@ -28,10 +28,14 @@ function harness(responses, env = { JIRA_TOKEN: SECRET, APPROVAL_MCP_TOKEN: CLIE
     server: 'http://localhost:3999',
     env,
     readText: async () => declaration,
-    fetchImpl: async (url, init) => { calls.push({ url, init }); return responses.shift(); },
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return url.endsWith('/acknowledge') ? response(200, { acknowledged: true }) : responses.shift();
+    },
     log: (line) => lines.push(line),
     sleep: async (ms) => { clock += ms; },
     now: () => clock,
+    open: async () => false,
   };
   return { options, calls, lines };
 }
@@ -52,13 +56,17 @@ describe('buildRequest', () => {
     assert.deepEqual(awaitingCredentials, ['jira']);
   });
 
-  it('refuses to submit when a custom header variable is missing', () => {
+  it('collects missing custom header credentials on the approval page', () => {
     const headers = JSON.stringify({ source: 'ws', upstreams: [{
       alias: 'api', url: 'https://api.example/mcp',
       credentials: { authorization: { env: 'API_TOKEN' }, headers: { 'X-Api-Key': { env: 'API_KEY' } } },
     }] });
-    assert.throws(() => buildRequest(headers, { API_TOKEN: 'a' }), /API_KEY/);
-    assert.throws(() => buildRequest(headers, { API_KEY: 'b' }), /API_TOKEN/);
+    for (const env of [{ API_TOKEN: 'a' }, { API_KEY: 'b' }]) {
+      const request = buildRequest(headers, env);
+      assert.deepEqual(request.body.upstreams[0].credentialFields, ['Authorization', 'X-Api-Key']);
+      assert.equal(request.body.upstreams[0].credentials, undefined);
+      assert.equal(request.body.upstreams[0].credentialsRequired, true);
+    }
     assert.deepEqual(buildRequest(headers, { API_TOKEN: 'a', API_KEY: 'b' }).body.upstreams[0].credentials, {
       authorization: 'a', headers: { 'X-Api-Key': 'b' },
     });
@@ -107,15 +115,46 @@ describe('runSetup', () => {
     ], { APPROVAL_MCP_TOKEN: CLIENT_TOKEN });
     assert.equal(await runSetup(h.options), 0);
     assert.deepEqual(h.lines.filter((line) => line.includes('approval page')), [
-      'approval-mcp-setup: the approval page asks for the Authorization value of "jira" when it needs one',
+      'approval-mcp-setup: enter the required credentials for "jira" on the approval page',
     ]);
   });
 
-  it('requires a client token before submitting', async () => {
+  it('does not submit when OAuth is rejected and no legacy token exists', async () => {
     const h = harness([], { JIRA_TOKEN: SECRET });
-    assert.equal(await runSetup(h.options), 1);
+    assert.equal(await runSetup({ ...h.options, authenticate: async () => { throw new Error('denied'); } }), 1);
     assert.equal(h.calls.length, 0);
     assert.ok(h.lines.some((line) => line.includes('APPROVAL_MCP_TOKEN')));
+  });
+
+  it('uses a setup OAuth token without requiring a manually generated token', async () => {
+    const h = harness([response(200, { status: 'unchanged', items: [] })], {});
+    let scopeRequested = false;
+    assert.equal(await runSetup({ ...h.options, authenticate: async ({ source, server }) => {
+      assert.equal(source, 'ws'); assert.equal(server, h.options.server);
+      scopeRequested = true; return 'oauth-token';
+    } }), 0);
+    assert.equal(scopeRequested, true);
+    assert.equal(h.calls[0].init.headers.authorization, 'Bearer oauth-token');
+    assert.ok(h.lines.every((line) => !line.includes('oauth-token')));
+  });
+
+  it('acknowledges unchanged results as well, so one-off access can be revoked', async () => {
+    const h = harness([response(200, { status: 'unchanged', items: [], requestId: 'done' })]);
+    assert.equal(await runSetup(h.options), 0);
+    assert.equal(h.calls[1].url, 'http://localhost:3999/api/setup/requests/done/acknowledge');
+    assert.equal(h.calls[1].init.method, 'POST');
+  });
+
+  it('retries a lost acknowledgement without requiring an already revoked token to work', async () => {
+    const h = harness([response(200, { status: 'unchanged', items: [], requestId: 'done' })]);
+    const original = h.options.fetchImpl;
+    let acknowledgements = 0;
+    assert.equal(await runSetup({ ...h.options, fetchImpl: async (url, init) => {
+      if (!url.endsWith('/acknowledge')) return original(url, init);
+      if (++acknowledgements === 1) throw new Error('lost response');
+      return response(401, {});
+    } }), 0);
+    assert.equal(acknowledgements, 2);
   });
 
   it('fails when the request is denied, gone, or rejected', async () => {

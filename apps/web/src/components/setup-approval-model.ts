@@ -21,6 +21,7 @@ export interface SetupPlanItem {
   changes: SetupField[];
   desired: SetupUpstreamValues;
   credentials: SetupCredentialPlan;
+  credentialFields?: string[];
   /** The address an URL change replaces; only the authenticated approval view carries it. */
   previousUrl?: string;
 }
@@ -90,19 +91,36 @@ export function enteredValue(entered: Readonly<Record<string, string>>, alias: s
 export function approvalCredentials(
   items: readonly SetupPlanItem[],
   entered: Readonly<Record<string, string>>,
-): Record<string, { authorization: string }> | undefined {
-  const result: Record<string, { authorization: string }> = {};
-  for (const alias of requiredCredentialAliases(items)) {
-    const value = enteredValue(entered, alias).trim();
-    if (value === '') return undefined;
-    Object.defineProperty(result, alias, {
-      value: { authorization: value },
+): Record<string, { authorization?: string; headers?: Record<string, string> }> | undefined {
+  const result: Record<string, { authorization?: string; headers?: Record<string, string> }> = {};
+  for (const item of items) {
+    const fields = credentialInputs(item);
+    if (fields.length === 0) continue;
+    const values = fields.map((field) => enteredValue(entered, credentialInputKey(item.alias, field)).trim());
+    if (item.credentials === 'none' && values.every((value) => value === '')) continue;
+    if (values.some((value) => value === '')) return undefined;
+    const credentials: { authorization?: string; headers?: Record<string, string> } = {};
+    fields.forEach((field, index) => {
+      if (field.toLowerCase() === 'authorization') credentials.authorization = values[index]!;
+      else credentials.headers = { ...credentials.headers, [field]: values[index]! };
+    });
+    Object.defineProperty(result, item.alias, {
+      value: credentials,
       enumerable: true,
       writable: true,
       configurable: true,
     });
   }
   return result;
+}
+
+export function credentialInputs(item: SetupPlanItem): string[] {
+  return item.credentials === 'required' || (item.credentials === 'none' && item.action !== 'unchanged')
+    ? item.credentialFields ?? ['Authorization'] : [];
+}
+
+export function credentialInputKey(alias: string, field: string): string {
+  return field.toLowerCase() === 'authorization' ? alias : JSON.stringify([alias, field.toLowerCase()]);
 }
 
 export function warnsAboutPrivateNetwork(item: SetupPlanItem): boolean {

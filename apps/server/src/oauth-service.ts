@@ -9,6 +9,9 @@ const CODE_LIFETIME_MS = 5 * 60_000;
 const ACCESS_LIFETIME_MS = 15 * 60_000;
 export const REFRESH_REUSE_GRACE_MS = 30 * 60_000;
 const MAX_GRANT_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+export const SETUP_SCOPE = 'setup:submit';
+export const MAX_SETUP_GRANT_SECONDS = 30 * 60;
+type OAuthScope = 'mcp:access' | typeof SETUP_SCOPE;
 
 interface OAuthClient {
   id: string;
@@ -24,6 +27,7 @@ interface OAuthRequest {
   issuer?: string;
   redirectUri: string;
   resource: string;
+  scope?: OAuthScope;
   codeChallenge: string;
   state?: string;
   expiresAt: string;
@@ -48,12 +52,15 @@ interface OAuthGrant {
   clientId: string;
   issuer?: string;
   resource?: string;
-  profileId: ProfileId;
-  profileVersion: number;
+  scope?: OAuthScope;
+  profileId?: ProfileId;
+  profileVersion?: number;
   createdAt: string;
   approvedByAdminId: string;
   expiresAt: string;
   revokedAt?: string;
+  /** Setup grants are bound durably to one immutable declaration, even across restart. */
+  setupRequestDigest?: string;
   refreshGeneration?: number;
   refreshResponse?: {
     sealed: string;
@@ -77,7 +84,7 @@ interface OAuthTokenResponse {
 const responseSchema = z.object({
   access_token: z.string().regex(/^amcpoa_[A-Za-z0-9_-]{43}$/),
   token_type: z.literal('Bearer'), expires_in: z.number().int().positive(),
-  refresh_token: z.string().regex(/^amcpor_[A-Za-z0-9_-]{43}$/).optional(), scope: z.literal('mcp:access'),
+  refresh_token: z.string().regex(/^amcpor_[A-Za-z0-9_-]{43}$/).optional(), scope: z.enum(['mcp:access', SETUP_SCOPE]),
 }).strict();
 
 export class OAuthError extends Error {
@@ -166,9 +173,9 @@ export class OAuthService {
     return host === undefined ? undefined : this.#originByHost.get(host.toLowerCase());
   }
 
-  resourceFor(origin: string): string {
+  resourceFor(origin: string, scope: OAuthScope = 'mcp:access'): string {
     if (this.originForHost(new URL(origin).host) !== origin) throw new OAuthError('invalid_resource');
-    return `${origin}/mcp`;
+    return `${origin}${scope === SETUP_SCOPE ? '/api/setup' : '/mcp'}`;
   }
 
   #serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -212,15 +219,16 @@ export class OAuthService {
     const client = this.#state.read((state) => record<OAuthClient>(state.oauthClients[input.clientId]));
     if (client === undefined || !client.redirectUris.includes(input.redirectUri)) throw new OAuthError('invalid_client');
     const issuer = client.issuer ?? this.issuer;
-    if (input.responseType !== 'code' || input.resource !== this.resourceFor(issuer) ||
+    const scope = input.scope ?? 'mcp:access';
+    if ((scope !== 'mcp:access' && scope !== SETUP_SCOPE) ||
+      input.responseType !== 'code' || input.resource !== this.resourceFor(issuer, scope) ||
       input.codeChallengeMethod !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(input.codeChallenge) ||
-      (input.scope !== undefined && input.scope !== 'mcp:access') ||
       (input.state !== undefined && input.state.length > 1024)) {
       throw new OAuthError('invalid_request');
     }
     const request: OAuthRequest = {
       id: randomUUID(), clientId: client.id, issuer, redirectUri: input.redirectUri,
-      resource: input.resource, codeChallenge: input.codeChallenge,
+      resource: input.resource, scope, codeChallenge: input.codeChallenge,
       ...(input.state === undefined ? {} : { state: input.state }),
       expiresAt: new Date(this.#now().getTime() + REQUEST_LIFETIME_MS).toISOString(),
       status: 'pending',
@@ -229,7 +237,7 @@ export class OAuthService {
     return request.id;
   }
 
-  pending(id: string): { clientName: string; clientId: string; redirectUri: string; resource: string; profiles: { id: string; name: string; version: number; ruleCount: number }[] } {
+  pending(id: string): { clientName: string; clientId: string; redirectUri: string; resource: string; scope: OAuthScope; profiles: { id: string; name: string; version: number; ruleCount: number }[] } {
     return this.#state.read((state) => {
       const request = record<OAuthRequest>(state.oauthRequests[id]);
       if (request === undefined || request.status !== 'pending' || request.expiresAt <= this.#now().toISOString()) {
@@ -240,7 +248,8 @@ export class OAuthService {
       return {
         clientName: client.name, clientId: client.id, redirectUri: request.redirectUri,
         resource: request.resource,
-        profiles: Object.values(state.profiles).map((value) => value as unknown as Profile)
+        scope: request.scope ?? 'mcp:access',
+        profiles: request.scope === SETUP_SCOPE ? [] : Object.values(state.profiles).map((value) => value as unknown as Profile)
           .map((profile) => ({
             id: profile.id, name: profile.name, version: profile.version,
             ruleCount: Object.values(state.profileRules).filter((value) =>
@@ -251,11 +260,8 @@ export class OAuthService {
     });
   }
 
-  async approve(id: string, profileId: string, lifetimeSeconds: number, adminId: string, label?: string): Promise<string> {
+  async approve(id: string, profileId: string, lifetimeSeconds: number | undefined, adminId: string, label?: string): Promise<string> {
     return this.#serialize(async () => {
-      if (!Number.isInteger(lifetimeSeconds) || lifetimeSeconds < 300 || lifetimeSeconds > MAX_GRANT_LIFETIME_SECONDS) {
-        throw new OAuthError('invalid_grant_lifetime');
-      }
       if (label !== undefined && (label.trim().length === 0 || label.trim().length > 120)) {
         throw new OAuthError('invalid_agent_label');
       }
@@ -268,7 +274,14 @@ export class OAuthService {
       if (request === undefined || request.status !== 'pending' || request.expiresAt <= now.toISOString()) {
         throw new OAuthError('invalid_request', 404);
       }
-      if (profile === undefined) throw new OAuthError('invalid_profile');
+      const isSetup = request.scope === SETUP_SCOPE;
+      // Setup lifetime is a server-owned safety bound, never a consent form choice.
+      const lifetime = isSetup ? MAX_SETUP_GRANT_SECONDS : lifetimeSeconds;
+      if (lifetime === undefined || !Number.isInteger(lifetime) || lifetime < 300 || lifetime > MAX_GRANT_LIFETIME_SECONDS) {
+        throw new OAuthError('invalid_grant_lifetime');
+      }
+      if (isSetup && profileId !== '') throw new OAuthError('invalid_request');
+      if (!isSetup && profile === undefined) throw new OAuthError('invalid_profile');
       const clientTokenId = randomUUID() as ClientTokenId;
       const grantId = randomUUID();
       const code = randomBytes(32).toString('base64url');
@@ -280,10 +293,11 @@ export class OAuthService {
       const grant: OAuthGrant = {
         id: grantId, clientTokenId, clientId: request.clientId,
         issuer: request.issuer ?? this.issuer, resource: request.resource,
-        profileId: profile.id, profileVersion: profile.version,
+        scope: request.scope ?? 'mcp:access',
+        ...(!isSetup && profile !== undefined ? { profileId: profile.id, profileVersion: profile.version } : {}),
         createdAt: now.toISOString(),
         approvedByAdminId: adminId,
-        expiresAt: new Date(now.getTime() + lifetimeSeconds * 1000).toISOString(),
+        expiresAt: new Date(now.getTime() + lifetime * 1000).toISOString(),
       };
       const client = this.#state.read((state) => record<OAuthClient>(state.oauthClients[request.clientId]));
       const agent: ClientTokenRecord = {
@@ -291,18 +305,48 @@ export class OAuthService {
         hash: '', salt: '', expiresAt: grant.expiresAt,
         schemaVersion: 1, createdAt: now.toISOString(), updatedAt: now.toISOString(), version: 1,
       };
-      const assignment: TokenProfileAssignment = {
+      const assignment: TokenProfileAssignment | undefined = isSetup || profile === undefined ? undefined : {
         id: randomUUID() as TokenProfileAssignment['id'], clientTokenId, profileId: profile.id,
         schemaVersion: 1, createdAt: now.toISOString(), updatedAt: now.toISOString(), version: 1,
       };
       await this.#state.mutate({ type: 'records.batch', operations: [
         upsert('clientTokens', clientTokenId, agent),
-        upsert('tokenProfileAssignments', assignment.id, assignment),
+        ...(assignment === undefined ? [] : [upsert('tokenProfileAssignments', assignment.id, assignment)]),
         upsert('oauthGrants', grantId, grant),
         upsert('oauthCodes', hash(code), codeRecord),
         upsert('oauthRequests', id, { ...request, status: 'approved', decidedByAdminId: adminId, decidedAt: now.toISOString() }),
       ] });
       return redirectWith(request.redirectUri, { code, state: request.state, iss: request.issuer ?? this.issuer });
+    });
+  }
+
+  /** One setup declaration per grant; identical retries remain safe and idempotent. */
+  claimSetup(clientTokenId: string, inputDigest: string): Promise<boolean> {
+    return this.#state.transact((state) => {
+      const grant = Object.values(state.oauthGrants).map((value) => value as unknown as OAuthGrant)
+        .find((value) => value.clientTokenId === clientTokenId && value.scope === SETUP_SCOPE);
+      const agent = record<ClientTokenRecord>(state.clientTokens[clientTokenId]);
+      if (grant === undefined || grant.revokedAt !== undefined || grant.expiresAt <= this.#now().toISOString() ||
+        agent?.authKind !== 'oauth' || agent.revokedAt !== undefined || agent.deletedAt !== undefined ||
+        (grant.setupRequestDigest !== undefined && grant.setupRequestDigest !== inputDigest)) return { result: false };
+      return { result: true, ...(grant.setupRequestDigest === undefined ? {
+        event: { type: 'records.batch' as const, operations: [upsert('oauthGrants', grant.id, { ...grant, setupRequestDigest: inputDigest })] },
+      } : {}) };
+    });
+  }
+
+  /** Called only after the owning client acknowledges a terminal setup result. */
+  async completeSetup(clientTokenId: string): Promise<void> {
+    await this.#state.transact((state) => {
+      const grant = Object.values(state.oauthGrants).map((value) => value as unknown as OAuthGrant)
+        .find((value) => value.clientTokenId === clientTokenId && value.scope === SETUP_SCOPE);
+      const agent = record<ClientTokenRecord>(state.clientTokens[clientTokenId]);
+      if (grant === undefined || grant.revokedAt !== undefined) return { result: undefined };
+      const revokedAt = this.#now().toISOString();
+      return { result: undefined, event: { type: 'records.batch' as const, operations: [
+        upsert('oauthGrants', grant.id, { ...grant, revokedAt }),
+        ...(agent === undefined ? [] : [upsert('clientTokens', agent.id, { ...agent, revokedAt, updatedAt: revokedAt, version: agent.version + 1 })]),
+      ] } };
     });
   }
 
@@ -324,7 +368,9 @@ export class OAuthService {
       const grant = record<OAuthGrant>(state.oauthGrants[id]);
       if (grant === undefined || grant.revokedAt !== undefined || grant.expiresAt <= this.#now().toISOString()) return undefined;
       const agent = record<ClientTokenRecord>(state.clientTokens[grant.clientTokenId]);
-      const profile = record<Profile>(state.profiles[grant.profileId]);
+      if (agent?.authKind !== 'oauth' || agent.deletedAt !== undefined || agent.revokedAt !== undefined) return undefined;
+      if (grant.scope === SETUP_SCOPE) return grant;
+      const profile = grant.profileId === undefined ? undefined : record<Profile>(state.profiles[grant.profileId]);
       const assignments = Object.values(state.tokenProfileAssignments)
         .map((value) => value as unknown as TokenProfileAssignment)
         .filter((item) => item.clientTokenId === grant.clientTokenId);
@@ -339,7 +385,8 @@ export class OAuthService {
     const remainingMs = new Date(grant.expiresAt).getTime() - now.getTime();
     if (remainingMs <= 0) throw new OAuthError('invalid_grant');
     const accessToken = `amcpoa_${randomBytes(32).toString('base64url')}`;
-    const accessLifetimeMs = Math.min(ACCESS_LIFETIME_MS, remainingMs);
+    const isSetup = grant.scope === SETUP_SCOPE;
+    const accessLifetimeMs = Math.min(isSetup ? MAX_SETUP_GRANT_SECONDS * 1000 : ACCESS_LIFETIME_MS, remainingMs);
     const generation = (grant.refreshGeneration ?? 0) + 1;
     const access: OAuthToken = {
       grantId: grant.id, kind: 'access',
@@ -359,7 +406,7 @@ export class OAuthService {
     }
     const operations = [...retired, ...extraOperations, upsert('oauthTokens', hash(accessToken), access)];
     let refreshToken: string | undefined;
-    if (remainingMs > ACCESS_LIFETIME_MS) {
+    if (!isSetup && remainingMs > ACCESS_LIFETIME_MS) {
       refreshToken = `amcpor_${randomBytes(32).toString('base64url')}`;
       operations.push(upsert('oauthTokens', hash(refreshToken), {
         grantId: grant.id, kind: 'refresh', expiresAt: grant.expiresAt, generation,
@@ -369,7 +416,7 @@ export class OAuthService {
       access_token: accessToken, token_type: 'Bearer',
       expires_in: Math.max(1, Math.floor(accessLifetimeMs / 1000)),
       ...(refreshToken === undefined ? {} : { refresh_token: refreshToken }),
-      scope: 'mcp:access',
+      scope: grant.scope ?? 'mcp:access',
     };
     operations.push(upsert('oauthGrants', grant.id, {
       ...grant, refreshGeneration: generation,
@@ -481,12 +528,13 @@ export class OAuthService {
     });
   }
 
-  authenticate(accessToken: string, resourceOrigin = this.issuer): ClientTokenId | undefined {
+  authenticate(accessToken: string, resourceOrigin = this.issuer, scope: OAuthScope = 'mcp:access'): ClientTokenId | undefined {
     if (!/^amcpoa_[A-Za-z0-9_-]{43}$/.test(accessToken)) return undefined;
     const token = this.#state.read((state) => record<OAuthToken>(state.oauthTokens[hash(accessToken)]));
     if (token?.kind !== 'access' || token.expiresAt <= this.#now().toISOString()) return undefined;
     const grant = this.#activeGrant(token.grantId);
-    return grant !== undefined && (grant.resource ?? this.resource) === `${resourceOrigin}/mcp`
+    return grant !== undefined && (grant.scope ?? 'mcp:access') === scope &&
+      (grant.resource ?? this.resource) === `${resourceOrigin}${scope === SETUP_SCOPE ? '/api/setup' : '/mcp'}`
       ? grant.clientTokenId : undefined;
   }
 }

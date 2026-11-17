@@ -53,7 +53,7 @@ function gatedFiles() {
   };
 }
 
-async function fixture(options: { passkeyAdminId?: string } = {}) {
+async function fixture(options: { passkeyAdminId?: string; probe?: ConstructorParameters<typeof SetupService>[0]['probe']; singleUse?: boolean } = {}) {
   const io = gatedFiles();
   const store = await createConfigStateStore(await mkdtemp(join(tmpdir(), 'approval-setup-')), io.files);
   const sessions = new SessionService(new InMemorySessionRepository());
@@ -61,6 +61,8 @@ async function fixture(options: { passkeyAdminId?: string } = {}) {
   const vault = new CredentialVault(Buffer.alloc(32, 7));
   let clock = new Date('2026-11-06T10:00:00.000Z');
   let upstreamChanges = 0;
+  const claimed = new Map<string, string>();
+  const completed = new Set<string>();
   const passkeys = {
     bootstrapOptions: async () => ({}),
     verifyBootstrap: async () => ({ adminId: 'admin' }),
@@ -81,12 +83,23 @@ async function fixture(options: { passkeyAdminId?: string } = {}) {
     publicOrigin: 'http://localhost:3000',
     onUpstreamsChanged: async () => { upstreamChanges += 1; },
     now: () => clock,
+    probe: options.probe ?? (async () => ({ status: 'ok', toolCount: 2 })),
+    claimRequest: async (requester, digest) => {
+      const previous = claimed.get(requester.id);
+      if (previous !== undefined && previous !== digest) return false;
+      claimed.set(requester.id, digest);
+      return true;
+    },
   });
   await registerSetupRoutes(app, {
     setup,
     passkeys,
     sessions,
-    authenticateRequester: async (token) => (Object.hasOwn(TOKENS, token) ? TOKENS[token] : undefined),
+    authenticateRequester: async (token) => {
+      const record = Object.hasOwn(TOKENS, token) ? TOKENS[token] : undefined;
+      return record === undefined || completed.has(record.id) ? undefined : { ...record, ...(options.singleUse ? { singleUse: true } : {}) };
+    },
+    completeRequester: async (requester) => { completed.add(requester.id); },
   });
   await registerUpstreamRoutes(app, { sessions, state: store, credentialVault: vault });
   apps.push(app);
@@ -138,12 +151,14 @@ async function digest(f: Fixture, id: string): Promise<string> {
   return (await view(f, id)).json().planDigest;
 }
 
-function approve(f: Fixture, id: string, body: Record<string, unknown>) {
+async function approve(f: Fixture, id: string, body: Record<string, unknown>) {
+  const verification = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`,
+    headers: f.authHeaders, payload: { planDigest: body.planDigest, credentials: body.credentials } });
   return f.app.inject({
     method: 'POST',
     url: `/api/setup/requests/${id}/approve`,
     headers: f.authHeaders,
-    payload: { passkey: { id: 'passkey' }, ...body },
+    payload: { passkey: { id: 'passkey' }, verificationId: verification.json().verificationId, ...body },
   });
 }
 
@@ -164,6 +179,105 @@ async function seed(f: Fixture, upstream: Partial<Upstream> & { id: string }) {
 }
 
 describe('declarative upstream setup API', () => {
+  it('limits single-use access to one declaration and completes only after the owner acknowledges a decision', async () => {
+    const f = await fixture({ singleUse: true });
+    const created = await submit(f, [jira]);
+    const id = created.json().requestId;
+    expect((await submit(f, [jira])).json().requestId).toBe(id);
+    expect((await submit(f, [{ ...jira, url: 'https://different.example/mcp' }])).json().error.code).toBe('auth.setup_bound');
+    const acknowledge = (token: string) => f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/acknowledge`, headers: { authorization: `Bearer ${token}` } });
+    expect((await acknowledge('token-a')).statusCode).toBe(409);
+    expect((await acknowledge('token-b')).statusCode).toBe(404);
+    await f.setup.deny(id);
+    expect((await status(f, id)).json().status).toBe('denied');
+    expect((await acknowledge('token-a')).statusCode).toBe(200);
+    expect((await status(f, id)).statusCode).toBe(401);
+    expect((await submit(f, [jira])).statusCode).toBe(401);
+    expect((await submit(f, [jira], 'token-b')).statusCode).toBe(202);
+  });
+
+  it('returns an acknowledgement handle for a single-use no-change setup and reuses it on retries', async () => {
+    const f = await fixture({ singleUse: true });
+    await seed(f, { id: 'existing', alias: jira.alias, url: jira.url, displayName: jira.displayName });
+    const first = await submit(f, [jira]);
+    expect(first.json()).toMatchObject({ status: 'unchanged', requestId: expect.any(String) });
+    expect((await submit(f, [jira])).json().requestId).toBe(first.json().requestId);
+    const ack = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${first.json().requestId}/acknowledge`, headers: { authorization: 'Bearer token-a' } });
+    expect(ack.statusCode).toBe(200);
+    expect((await submit(f, [jira])).statusCode).toBe(401);
+  });
+
+  it('requires successful, fresh verification bound to the exact entered credentials', async () => {
+    const calls: unknown[] = [];
+    const f = await fixture({ probe: async (input) => { calls.push(input); return { status: 'ok', toolCount: 4 }; } });
+    const id: string = (await submit(f, [{ ...jira, credentialFields: ['Authorization', 'X-API-Key'] }])).json().requestId;
+    const planDigest = await digest(f, id);
+    const credentials = { jira: { authorization: SECRET, headers: { 'X-API-Key': 'private-key' } } };
+    const rawApprove = (verificationId?: string, entered = credentials) => f.app.inject({ method: 'POST',
+      url: `/api/setup/requests/${id}/approve`, headers: f.authHeaders, payload: { planDigest, credentials: entered, verificationId, passkey: {} } });
+    expect((await rawApprove()).json().error.code).toBe('setup.verification_required');
+    const verification = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`, headers: f.authHeaders, payload: { planDigest, credentials } });
+    expect(verification.json()).toMatchObject({ results: [{ alias: 'jira', status: 'ok', toolCount: 4 }], verificationId: expect.any(String) });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ credentials: credentials.jira });
+    expect(verification.body).not.toContain(SECRET);
+    expect(verification.body).not.toContain('private-key');
+    const ticket = verification.json().verificationId;
+    expect((await rawApprove(ticket, { jira: { ...credentials.jira, authorization: 'Bearer changed' } })).json().error.code).toBe('setup.verification_required');
+    f.advance(120_001);
+    expect((await rawApprove(ticket)).json().error.code).toBe('setup.verification_required');
+    const verified = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`, headers: f.authHeaders, payload: { planDigest, credentials } });
+    expect((await rawApprove(verified.json().verificationId)).statusCode).toBe(200);
+    const stored = f.upstreams()[0]!;
+    expect(f.vault.decrypt(stored.id, stored.credentials!)).toEqual(credentials.jira);
+  });
+
+  it('does not allow failed probes, unauthenticated probes, or client-token probes to approve a plan', async () => {
+    const f = await fixture({ probe: async () => ({ status: 'error', code: 'auth_required' }) });
+    const id: string = (await submit(f, [jira])).json().requestId;
+    const planDigest = await digest(f, id);
+    for (const headers of [{}, { authorization: 'Bearer token-a' }, { cookie: f.authHeaders.cookie }]) {
+      expect((await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`, headers, payload: { planDigest } })).statusCode).toBeGreaterThanOrEqual(400);
+    }
+    const verified = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`, headers: f.authHeaders, payload: { planDigest } });
+    expect(verified.json()).toMatchObject({ results: [{ status: 'error', code: 'auth_required' }] });
+    expect(verified.json().verificationId).toBeUndefined();
+    expect((await approve(f, id, { planDigest })).json().error.code).toBe('setup.verification_required');
+    expect(f.upstreams()).toHaveLength(0);
+  });
+
+  it('keeps the write queue available while a probe waits and discards results after denial', async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const began = new Promise<void>((resolve) => { started = resolve; });
+    const f = await fixture({ probe: async () => { started(); await waiting; return { status: 'ok', toolCount: 0 }; } });
+    const id: string = (await submit(f, [jira])).json().requestId;
+    const planDigest = await digest(f, id);
+    const pending = f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`, headers: f.authHeaders, payload: { planDigest } });
+    const result = pending.then((response) => response);
+    await began;
+    const busy = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`, headers: f.authHeaders, payload: { planDigest } });
+    expect(busy.statusCode).toBe(429);
+    expect((await submit(f, [{ alias: 'other', url: 'https://other.example/mcp' }])).statusCode).toBe(202);
+    await f.setup.deny(id);
+    release();
+    expect((await result).statusCode).toBe(404);
+    expect(f.upstreams()).toHaveLength(0);
+  });
+
+  it('invalidates a verified plan when configuration changes before approval', async () => {
+    const f = await fixture();
+    const id: string = (await submit(f, [jira])).json().requestId;
+    const planDigest = await digest(f, id);
+    const verified = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/verify`, headers: f.authHeaders, payload: { planDigest } });
+    await seed(f, { id: 'manual', alias: 'jira', url: 'https://manual.example/mcp' });
+    const response = await f.app.inject({ method: 'POST', url: `/api/setup/requests/${id}/approve`, headers: f.authHeaders,
+      payload: { planDigest, verificationId: verified.json().verificationId, passkey: {} } });
+    expect(response.json().error.code).toBe('setup.plan_stale');
+    expect(f.upstreams()[0]?.url).toBe('https://manual.example/mcp');
+  });
+
   it('creates an upstream with credentials sent in the call after passkey approval', async () => {
     const f = await fixture();
     const created = await submit(f, [{ ...jira, credentials: { authorization: SECRET } }]);

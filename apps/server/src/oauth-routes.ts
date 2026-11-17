@@ -2,7 +2,7 @@ import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import type { AuthPasskeyService } from './auth-routes.js';
-import { OAuthError, OAuthService } from './oauth-service.js';
+import { OAuthError, OAuthService, SETUP_SCOPE } from './oauth-service.js';
 import type { SessionService } from './session-store.js';
 import { authorizeAdmin } from './admin/authorization.js';
 
@@ -53,6 +53,12 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
     reply.header('cache-control', 'public, max-age=300');
     return { resource: oauth.resourceFor(origin), authorization_servers: [origin], scopes_supported: ['mcp:access'] };
   });
+  app.get('/.well-known/oauth-protected-resource/api/setup', async (request, reply) => {
+    const origin = requestOrigin(request, reply);
+    if (origin === undefined) return;
+    reply.header('cache-control', 'public, max-age=300');
+    return { resource: oauth.resourceFor(origin, SETUP_SCOPE), authorization_servers: [origin], scopes_supported: [SETUP_SCOPE] };
+  });
   app.get('/.well-known/oauth-authorization-server', async (request, reply) => {
     const origin = requestOrigin(request, reply);
     if (origin === undefined) return;
@@ -66,7 +72,7 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
       grant_types_supported: ['authorization_code', 'refresh_token'],
       code_challenge_methods_supported: ['S256'],
       token_endpoint_auth_methods_supported: ['none'],
-      scopes_supported: ['mcp:access'],
+      scopes_supported: ['mcp:access', SETUP_SCOPE],
       authorization_response_iss_parameter_supported: true,
     };
   });
@@ -144,7 +150,8 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
     if (session === undefined) return;
     const { id } = request.params as { id: string };
     const body = (request.body ?? {}) as { profileId?: unknown; lifetimeSeconds?: unknown; label?: unknown; passkey?: unknown };
-    if (typeof body.profileId !== 'string' || typeof body.lifetimeSeconds !== 'number' ||
+    if ((body.profileId !== undefined && typeof body.profileId !== 'string') ||
+      (body.lifetimeSeconds !== undefined && typeof body.lifetimeSeconds !== 'number') ||
       (body.label !== undefined && typeof body.label !== 'string') ||
       typeof body.passkey !== 'object' || body.passkey === null) {
       return oauthFailure(reply, new OAuthError('invalid_request'));
@@ -153,7 +160,7 @@ export async function registerOAuthRoutes(app: FastifyInstance, options: {
       oauth.pending(id);
       const verified = await options.passkeys.verifyLogin(body.passkey as AuthenticationResponseJSON);
       if (verified.adminId !== session.adminId) throw new OAuthError('access_denied', 403);
-      const redirectTo = await oauth.approve(id, body.profileId, body.lifetimeSeconds, session.adminId, body.label as string | undefined);
+      const redirectTo = await oauth.approve(id, body.profileId as string | undefined ?? '', body.lifetimeSeconds as number | undefined, session.adminId, body.label as string | undefined);
       return reply.header('cache-control', 'no-store').send({ redirectTo });
     } catch (error) { return oauthFailure(reply, error); }
   });

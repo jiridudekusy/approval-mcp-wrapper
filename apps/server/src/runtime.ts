@@ -46,6 +46,7 @@ import {
 import fastifyStatic from '@fastify/static';
 import type {
   ClientTokenId,
+  ClientTokenRecord,
   Grant,
   JsonValue,
   Policy,
@@ -574,15 +575,23 @@ const setup = new SetupService({
   credentialVault,
   publicOrigin: config.expectedOrigin,
   onUpstreamsChanged: upstreamsChanged,
+  claimRequest: (requester, digest) => oauth.claimSetup(requester.id, digest),
 });
 await registerSetupRoutes(app, {
   setup,
   passkeys,
   sessions,
-  authenticateRequester: async (token) => {
+  authenticateRequester: async (token, host) => {
+    const origin = oauth.originForHost(host);
+    const oauthId = origin === undefined ? undefined : oauth.authenticate(token, origin, 'setup:submit');
+    if (oauthId !== undefined) {
+      const record = stateStore.read((state) => state.clientTokens[oauthId] as unknown as ClientTokenRecord | undefined);
+      return record === undefined ? undefined : { id: record.id, label: record.label, singleUse: true };
+    }
     const record = await tokens.authenticate(token);
     return record === undefined ? undefined : { id: record.id, label: record.label };
   },
+  completeRequester: (requester) => oauth.completeSetup(requester.id),
 });
 app.route({
   method: ['GET', 'POST', 'DELETE'],

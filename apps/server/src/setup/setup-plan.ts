@@ -28,6 +28,7 @@ export interface SetupPlanItem {
   changes: SetupField[];
   desired: DesiredUpstream;
   credentials: CredentialPlan;
+  credentialFields?: string[];
 }
 
 export interface SetupPlan {
@@ -100,7 +101,8 @@ function planItem(item: SetupUpstreamDeclaration, context: SetupPlanContext): Se
     if (desired.description !== undefined) changes.push('description');
     if (desired.metadata !== undefined) changes.push('metadata');
     if (credentials !== 'none') changes.push('credentials');
-    return { alias: item.alias, action: 'create', changes, desired, credentials };
+    return { alias: item.alias, action: 'create', changes, desired, credentials,
+      ...(item.credentialFields === undefined ? {} : { credentialFields: item.credentialFields }) };
   }
 
   const changes: SetupField[] = [];
@@ -125,6 +127,7 @@ function planItem(item: SetupUpstreamDeclaration, context: SetupPlanContext): Se
     changes,
     desired,
     credentials,
+    ...(item.credentialFields === undefined ? {} : { credentialFields: item.credentialFields }),
   };
 }
 

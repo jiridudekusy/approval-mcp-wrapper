@@ -44,6 +44,7 @@ export interface McpConnectInput {
   url: URL;
   allowPrivateNetwork: boolean;
   credentials?: UpstreamCredentials;
+  signal?: AbortSignal;
 }
 
 export interface McpConnectionFactory {
@@ -227,7 +228,11 @@ export class OfficialMcpConnectionFactory implements McpConnectionFactory {
       rules: { allowPrivateNetwork: input.allowPrivateNetwork },
     });
     const transport = new StreamableHTTPClientTransport(input.url, {
-      fetch: safeFetch,
+      fetch: input.signal === undefined ? safeFetch : (url, init) => safeFetch(url, {
+        ...init,
+        signal: init?.signal === undefined || init.signal === null
+          ? input.signal! : AbortSignal.any([init.signal, input.signal!]),
+      }),
       requestInit: { headers: requestHeaders },
     });
     const client = new Client(
@@ -237,7 +242,12 @@ export class OfficialMcpConnectionFactory implements McpConnectionFactory {
         versionNegotiation: { mode: 'auto' },
       },
     );
-    await client.connect(transport);
+    try {
+      await client.connect(transport, input.signal === undefined ? undefined : { signal: input.signal });
+    } catch (error) {
+      void client.close().catch(() => undefined);
+      throw error;
+    }
     return {
       listTools: () => client.listTools(),
       callTool: (call, options) => client.callTool(call, {

@@ -24,6 +24,7 @@ const FORBIDDEN_HEADER_NAMES = new Set([
 const UPSTREAM_KEYS = new Set([
   'alias', 'url', 'allowPrivateNetwork', 'displayName', 'description', 'metadata',
   'credentialsRequired', 'credentials',
+  'credentialFields',
 ]);
 
 export interface SetupUpstreamDeclaration {
@@ -35,6 +36,7 @@ export interface SetupUpstreamDeclaration {
   metadata?: Record<string, string>;
   credentialsRequired: boolean;
   credentials?: UpstreamCredentials;
+  credentialFields?: string[];
 }
 
 export interface SetupDeclaration {
@@ -61,6 +63,19 @@ function credentialValue(value: unknown): string {
     invalid();
   }
   return value;
+}
+
+/** Public field names only; values are collected in the authenticated browser. */
+export function parseCredentialFields(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_CREDENTIAL_HEADERS) invalid();
+  const fields = value.map((name: unknown) => {
+    if (typeof name !== 'string' || !HEADER_NAME_PATTERN.test(name) ||
+      (name.toLowerCase() !== 'authorization' && FORBIDDEN_HEADER_NAMES.has(name.toLowerCase()))) invalid();
+    return name.toLowerCase() === 'authorization' ? 'Authorization' : name;
+  });
+  if (new Set(fields.map((name) => name.toLowerCase())).size !== fields.length) invalid();
+  return fields;
 }
 
 export function parseCredentials(value: unknown): UpstreamCredentials {
@@ -130,6 +145,7 @@ function parseUpstream(value: unknown): SetupUpstreamDeclaration {
   const credentials = input['credentials'] === undefined
     ? undefined
     : parseCredentials(input['credentials']);
+  const credentialFields = parseCredentialFields(input['credentialFields']);
   return {
     alias,
     url: upstreamUrl(input['url']),
@@ -137,8 +153,9 @@ function parseUpstream(value: unknown): SetupUpstreamDeclaration {
     ...(displayName === undefined ? {} : { displayName }),
     ...(description === undefined ? {} : { description }),
     ...(metadata === undefined ? {} : { metadata }),
-    credentialsRequired: credentialsRequired || credentials !== undefined,
+    credentialsRequired: credentialsRequired || credentials !== undefined || credentialFields !== undefined,
     ...(credentials === undefined ? {} : { credentials }),
+    ...(credentialFields === undefined ? {} : { credentialFields }),
   };
 }
 
